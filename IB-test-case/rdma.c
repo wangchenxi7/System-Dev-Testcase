@@ -52,6 +52,9 @@ struct ib_connection {
 	unsigned long long 	vaddr;
 };
 
+
+// self defined ? 
+
 struct app_data {
 	int							port;
 	int							ib_port;
@@ -96,15 +99,16 @@ int main(int argc, char *argv[])
 	struct ibv_qp			*qp;
 
 	struct app_data	 	 data = {
-		.port	    		= 18515,
-		.ib_port    		= 1,
-		.size       		= 65536,
-		.tx_depth   		= 100,
+		.port	    		= 19765,  			// tcp/ip port ?  We can use the port of qperf
+		.ib_port    		= 1,					// ? hardware port of IB ?
+		.size       		= 65536,			// message size ?
+		.tx_depth   		= 100,				//  ?
 		.servername 		= NULL,
 		.remote_connection 	= NULL,
 		.ib_dev     		= NULL
 		
 	};
+
 
 	if(argc == 2){
 		data.servername = argv[1];
@@ -215,6 +219,13 @@ static int tcp_client_connect(struct app_data *data)
 	TEST_N(getaddrinfo(data->servername, service, &hints, &res),
 			"getaddrinfo threw error");
 
+
+	//debug
+	char host[256];
+	getnameinfo(res->ai_addr, res->ai_addrlen, host, sizeof (host), NULL, 0, NI_NUMERICHOST);
+	puts(host);
+
+
 	for(t = res; t; t = t->ai_next){
 		TEST_N(sockfd = socket(t->ai_family, t->ai_socktype, t->ai_protocol),
 				"Could not create client socket");
@@ -295,9 +306,9 @@ static struct app_context *init_ctx(struct app_data *data)
 	struct ibv_device **dev_list;
 
 	TEST_Z(dev_list = ibv_get_device_list(NULL),
-            "No IB-device available. get_device_list returned NULL");
+            "No IB-device available. get_device_list returned NULL");     // [?] get the available device on current server ?
 
-    TEST_Z(data->ib_dev = dev_list[0],
+  TEST_Z(data->ib_dev = dev_list[0],
             "IB-device could not be assigned. Maybe dev_list array is empty");
 
 	TEST_Z(ctx->context = ibv_open_device(data->ib_dev),
