@@ -50,13 +50,18 @@ object SparkPageRank {
 
     showWarning()
 
+
     val spark = SparkSession
       .builder
       .appName("SparkPageRank")
       .getOrCreate()
 
     val iters = if (args.length > 1) args(1).toInt else 10
-    val lines = spark.read.textFile(args(0)).rdd
+    val partitionsNum = if (args.length > 2) args(2).toInt else 8
+
+    //val lines = spark.read.textFile(args(0), 8).rdd
+    val lines = spark.sparkContext.textFile(args(0), partitionsNum)
+
     val links = lines.map{ s =>
       val parts = s.split("\\s+")
       (parts(0), parts(1))
@@ -72,7 +77,7 @@ object SparkPageRank {
     }
 
     val output = ranks.collect()
-    output.foreach(tup => println(tup._1 + " has rank: " + tup._2 + "."))
+    //output.foreach(tup => println(tup._1 + " has rank: " + tup._2 + "."))
 
     spark.stop()
   }
