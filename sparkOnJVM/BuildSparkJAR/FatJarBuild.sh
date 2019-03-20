@@ -18,7 +18,7 @@ fi
 if [ "${choice}" = "1" ]
 then
 	echo "Build the fat Jar"
-	echo "Enter suffix of the jar  "
+	echo "Enter suffix of the jar : SparkApp-assembly-<JarSuffix>.jar  "
 	read JarSuffix
 
 	echo "The suffix of the fat jar  : ${JarSuffix} "

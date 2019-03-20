@@ -3,7 +3,18 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
-public class SparkCase01{
+
+/*
+*  Spark teset case 50 ++
+* Used to test object header modification Unsafe API.
+* Application can invoke Unsafe/JNI API to write datas into object headers.
+*
+* SparkCase50 : single thread, basic test
+*/
+
+
+
+public class SparkCase50{
  
 	public static int arraySize = 128;  // number 
   public static int objArraySize = 2048;
@@ -28,20 +39,17 @@ public class SparkCase01{
 
 	for (j=0;j<iteration;j++){
 	  int[] tmpA = new int[arraySize];
-	  
+	  double[] tmpB = new double[arraySize];
 
 
 	  objItem tmp = new objItem(j,j*100);
 //	  double[] tmpB = new double[arraySize];
 	  objItem[] tmpC = new objItem[objArraySize];
 
-	  //debug
-		unsafe.updateAccessCount(tmp);
-
 	  //init
 	  for(i=0;i<arraySize; i++){
 		tmpA[i]=i+4;
-//		tmpB[i]=tmpA[i]+1;
+		tmpB[i]=tmpA[i] * 1.2;
 	  }
 
 	  for(i=0; i<objArraySize; i++){
@@ -52,7 +60,7 @@ public class SparkCase01{
 //		}
 	  }
 
-	  //unsafe.leave_rdd_region();
+
 
 	  //calculate
 	  double sum=0;
@@ -61,6 +69,16 @@ public class SparkCase01{
 //		sum-=tmpB[i];
 		sum+=tmpC[i].val;
 	  }
+
+	  // Record the long life time array
+	  surviveGC[j] = tmpB;
+
+
+	  // Debug
+	  // Write a number into object header
+	  // The object should be not changed. 
+	  unsafe.incrAccessCount(surviveGC);
+
 
 	  System.gc();
 	  System.out.println("The sum is :"+ sum);
@@ -95,3 +113,5 @@ class internelObj{
 	this.val = val;
   }
 }
+
+
