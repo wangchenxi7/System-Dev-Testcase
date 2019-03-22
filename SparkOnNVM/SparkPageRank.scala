@@ -59,6 +59,9 @@ object SparkPageRank {
     val iters = if (args.length > 1) args(1).toInt else 10
     val partitionsNum = if (args.length > 2) args(2).toInt else 8
 
+    println("args(0),input data set: %s; args(1), iteration : %s; args(2), partitionsNum : %s ."
+                  .format(args(0), iters, partitionsNum) )
+
     //val lines = spark.read.textFile(args(0), 8).rdd
     val lines = spark.sparkContext.textFile(args(0), partitionsNum)
 
