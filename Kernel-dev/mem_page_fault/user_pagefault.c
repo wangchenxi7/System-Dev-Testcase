@@ -7,9 +7,15 @@
 
 #include "stdio.h"
 #include "stdlib.h"
+//kernel header
+#include "fcntl.h"
+#include "errno.h"
+//#include "asm/uaccess.h"
+//#include "linux/buffer_head.h"
 
 
-#define  ARRAY_LENGTH 256*1024*1024
+
+#define  ARRAY_LENGTH 512*1024*1024  // length of array,  8 bytes/item
 
 
 int main(int argc, char* argv[]){
@@ -19,6 +25,7 @@ int main(int argc, char* argv[]){
 	int i,j,k;
 	double sum = 0;
 
+	// Stage 1 : Swap out page
 	printf("Stage 1: Trigger anoymous page fault \n");
 	// 1) Trigger page fualt - anoymous
 	// 2) Trigger the paging out
@@ -27,11 +34,17 @@ int main(int argc, char* argv[]){
 		sum += a[i];
 	}
 
+	
+	// Stage 2 : Swap in page
 	printf("State 2 : try to access the paged out pages. \n");
+
+	// [?] Trigger a special path to let GDB stop here ?
+	int fd = open("foo.txt", O_RDONLY | O_CREAT); 
+	printf("Syscall at start of state 2, open- fd : %d \n", fd);
 
 	// 3) Triger the paging in
 	// Prevent optimization
-	for(j=0;j<ARRAY_LENGTH;j+=128*1024){
+	for(j=0;j<ARRAY_LENGTH;j+=1024*1024){
 		printf("a[%d] : %f \n",j,a[j]);
 	}
 
