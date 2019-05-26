@@ -169,7 +169,7 @@ int main(int argc, char   *argv[ ])
 	
 	buf = calloc(1, sizeof(struct message));
 
-	mr = ibv_reg_mr(pd, buf, sizeof(struct message),  IBV_ACCESS_LOCAL_WRITE);
+	mr = ibv_reg_mr(pd, buf, sizeof(struct message),  IBV_ACCESS_LOCAL_WRITE);  // bind the the buffer with the device .
 	
 	if (!mr){ 
 		return 1;
