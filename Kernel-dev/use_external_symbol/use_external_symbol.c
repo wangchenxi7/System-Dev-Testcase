@@ -10,6 +10,8 @@ MODULE_VERSION("0.0");
 
 
 // Declare the External symbols
+// If can't include the header who declares this function,
+// We have to declare it as exteren
 extern int print_int_num(int num);  
 
 static int init_this_module(void){
