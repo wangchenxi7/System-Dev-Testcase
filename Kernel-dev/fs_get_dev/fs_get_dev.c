@@ -21,19 +21,19 @@
 
 
 // Kernel functions can only be static ?
-static int init(){
+static int init(void){
   printk("Init self build kernel \n");
 
   return 0;
 }
 
 
-static int exit(){
+static int exit(void){
   printk("Exit self build kernel \n");
 
   return 0;
 }
 
-module_init(init());
-module_exit(exit());
+module_init(init);
+module_exit(exit);
 
