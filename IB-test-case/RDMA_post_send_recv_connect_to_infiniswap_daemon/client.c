@@ -262,8 +262,14 @@ int main(int argc, char   *argv[ ])
 
 		printf("wc.wr_id  : %d \n",wc.wr_id );
 		printf(" buf->type, buf->size_gb : %d GB %d \n", buf->type, buf->size_gb);
-		return 0;
+
+		// 2) Send a message to remote memory server.
+
+
+		//debug
+		break;
 
    }
+	 
    return 0;
 }
