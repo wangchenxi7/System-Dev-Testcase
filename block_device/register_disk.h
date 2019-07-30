@@ -5,13 +5,33 @@
  * 
  */
 
+#ifndef REMOTEMEMPOOL
+#define REMOTEMEMPOOL
+
+#include <linux/kernel.h>
+#include <linux/err.h>
+#include <linux/version.h>
+#include <linux/module.h>
+#include <linux/types.h> 
+
+// Block layer 
+#include <linux/blk-mq.h>
+#include <linux/blkdev.h>
+
+// For infiniband
+#include <rdma/ib_verbs.h>
+#include <rdma/rdma_cm.h>
 
 
+// Disk hardware information
+#define RMEM_SECT_SIZE							512 	// disk sector size, bytes ??
+//#define RMEM_REQUEST_QUEUE_NUM     2  	// for debug, use the online_cores
+#define RMEM_QUEUE_DEPTH           	16  	// [?]  1 - (-1U), what's the good value ? 
+#define RMEM_QUEUE_MAX_SECT_SIZE		1024 	// The max number of sectors per request, /sys/block/sda/queue/max_hw_sectors_kb is 256
+#define DEVICE_NAME_LEN							32
 
-#define RMEM_SECT_SIZE							512 // disk sector size, bytes ??
-//#define RMEM_REQUEST_QUEUE_NUM     2  // for debug, use the online_cores
-#define RMEM_QUEUE_DEPTH           	16  // [?]  1 - (-1U), what's the good value ? 
-#define RMEM_SIZE_IN_BYTES					2014*1024*1024*8  // 8GB
+
+#define RMEM_SIZE_IN_BYTES  (unsigned long)1024*1024*1024*8  // 8GB
 
 
 static int rbd_major_num;
@@ -55,10 +75,8 @@ struct rmem_rdma_request {
  * 
  */
 struct rmem_rdma_queue {
-	unsigned int		                  queue_depth;
-	struct rmem_rdma_connection	      *rbd_conn;
-
-	struct rmem_device_control	        *rbd_ctrl; /* pointer to parent, the remote bd controll */
+	struct rmem_rdma_connection	      *rmem_conn;				// RDMA session connection 
+	struct rmem_device_control	      *rmem_dev_ctrl;  	// pointer to parent, the device driver 
 };
 
 
@@ -68,30 +86,34 @@ struct rmem_rdma_queue {
 
 /**
  * Block device information
+ * This structure is the driver context data. 
  * 
  * 
  * [?] One rbd_device_control should record all the connection_queues ??
  * 
+ * [?] Finnaly, we need pass all these fields to  tag_set,  htcx, rdma_connections ?
+ * 
+ * 
  */
 struct rmem_device_control {
-	int			     							fd;
+	//int			     							fd;   // [?] Why do we need a file handler ??
 	int			     							major; /* major number from kernel */
 	//struct r_stat64		     stbuf; /* remote file stats*/
-	char			     						file_name[MAX_IS_DEV_NAME];       // [?] Do we need a file name ??
-	struct list_head	     		list;           /* next node in list of struct IS_file */    // Why do we need such a list ??
+	//char			     						file_name[DEVICE_NAME_LEN];       // [?] Do we need a file name ??
+	//struct list_head	     		list;           /* next node in list of struct IS_file */    // Why do we need such a list ??
 	struct gendisk		    		*disk;           // [?] the real disk ?? For NBD, points to ?
-	struct request_queue	    *queue; /* The device request queue */
+	struct request_queue	    *queue; 	/* The device request queue */
 	struct blk_mq_tag_set	    tag_set;
 	
   //[?] What's  this queue used for ?
-  struct rmem_rdma_queue	    		*queues;
-	unsigned int		      	queue_depth;      //[?] How to set these numbers ?
-	unsigned int		      	nr_queues;
-	int			              	index; /* drive idx */
-	char			            	dev_name[MAX_IS_DEV_NAME];
+  struct rmem_rdma_queue	  *rdma_queues;			//  [?] The rdma connection session ?? one rdma session queue per software staging queue ??
+	unsigned int		      		queue_depth;      //[?] How to set these numbers ?
+	unsigned int		      		nr_queues;				// [?] pass to blk_mq_tag_set->nr_hw_queues ??
+	//int			              		index; /* drive idx */
+	char			            		dev_name[DEVICE_NAME_LEN];
 	//struct rdma_connection	    **IS_conns;
 	//struct config_group	     dev_cg;
-	spinlock_t		        	state_lock;
+	//spinlock_t		        	state_lock;
 	//enum IS_dev_state	     state;	
 };
 
@@ -113,3 +135,4 @@ struct rmem_control {
 };
 
 
+#endif // REMOTEMEMPOOL

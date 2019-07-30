@@ -12,14 +12,16 @@
  * 
  */
 
-// Linux header
-#include <linux/kernel.h>
-#include <linux/module.h>
-
 
 // Self defined headers
 #include "register_disk.h"
 
+
+
+MODULE_AUTHOR("Chenxi Wang");
+MODULE_DESCRIPTION("RMEM, remote memory paging over RDMA");
+MODULE_LICENSE("Dual BSD/GPL");
+MODULE_VERSION("1.0");
 
 
 /**
@@ -35,31 +37,63 @@
  */
 
 /**
- * hctx : ?? 
- *      some intermediate structure, used to pass information
+ * hctx :  
+ *      The hardware dispatch queue context.
  * 
  * data : who assigns this parater ??
- *      seems the data is the rdd_device_control 
+ *      seems the data is the rdd_device_control, the driver controller/context.
  * 
- * index : 
+ * hw_index : 
+ *      The index for the dispatch queue ??
+ *      [?] The problem is that every hardware core will invoke blk_mq_ops->.init_hctx  ??
+ * 
  * 
  */
-static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int index){
+static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int hw_index){
 
-  struct rbd_device_control* rbd = data;
-  struct rbd_queue * rbd_conn_q;
+  struct rmem_device_control* rmem_ctrl = data;
+  struct rmem_rdma_queue*  rmem_queue = &rmem_ctrl->rdma_queues[hw_index];
 
+  // do some initialization for the  rmem_rdma_queues
+  // 
+  //
 
-  // What's  this used for ??
-  // assign hctx->driver_data
-
-  rbd_conn_q = &rbd->queues[index]
-  // [??] Do we need to initiate its fields here ??
-
-  htcx->driver_data = rbd_conn_q;
+  hctx->driver_data = rmem_queue;
 
   return 0;
 }
+
+
+/**
+ * Dirver gets request fomr the hardware dispatch queue ??
+ * blk_mq_ops->queue_rq is the regsitered function to handle this request. 
+ * 
+ * For this remote_memory_pool device, we seend the read/write request to remote mmeory pool.
+ * 
+ * blk_mq_queeu_data : stores the requet gotten from staging queue.
+ * blk_mq_hw_ctx
+ * 
+ */
+static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd){
+
+  int ret = 0;
+
+  struct rmem_rdma_queue* rmem_rdma_q = hctx->driver_data;   // blk_mq_hw_ctx->driver_data  stores the RDMA connection context.
+  struct request *rq = bd->rq;
+
+  //
+  // TO BE DONE
+  //
+
+  printk("rmem_queue_rq: get a request.  \n");
+
+out:
+  return ret;
+
+}
+
+
+
 
 
 /**
@@ -72,7 +106,7 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int i
  */
 static struct blk_mq_ops rmem_mq_ops = {
 	.queue_rq       = rmem_queue_rq,
-	.map_queues     = blk_mq_map_queues,  // Map hardware dispatch queues and available cores.
+	.map_queues     = blk_mq_map_queues,      // Map hardware dispatch queues and available cores.
 	.init_hctx	    = rmem_init_hctx,
 };
 
@@ -92,34 +126,39 @@ static struct blk_mq_ops rmem_mq_ops = {
 /**
  * blk_mq_tag_set stores all the disk information. Both hardware and software
  * 
+ * [?] Used to initialize hardware dispatch queue
  * 
+ * [?] For the staging queue, set the information within it directly ?
  * 
  */
 static int init_blk_mq_tag_set(struct rmem_device_control* rmem_dev_ctrl){
 
-  struct blk_mq_tag_set* tag_set = rmem_dev_ctrl->tag_set;
+  struct blk_mq_tag_set* tag_set = &(rmem_dev_ctrl->tag_set);
   int err = 0;
 
   if(!tag_set){
     printk("init_blk_mq_tag_set : pass a null pointer in. \n");
-    return -1;
+    err = -1;
+    goto out;
   }
 
   tag_set->ops = &rmem_mq_ops;
-  tag_set->nr_hw_queues = online_cores;   // hardware dispatch queue == software staging queue == avaible cores
-  tag_set->queue_depth = RMEM_QUEUE_DEPTH;
+  tag_set->nr_hw_queues = rmem_dev_ctrl->nr_queues;   // hardware dispatch queue == software staging queue == avaible cores
+  tag_set->queue_depth = rmem_dev_ctrl->queue_depth;  // [?] staging / dispatch queues have the same queue depth ?? or only staging queues have queue depth ?? 
   tag_set->numa_node  = NUMA_NO_NODE;
-  tag_set->cmd_size = sizeof(struct rmem_rdma_request);
-  tag_set->flags = BLK_MQ_F_SHOULD_MERGE;   // [?]merge the i/o requets ??
-  tag_set->driver_data = rmem_dev_ctrl;     // The disk dievice information
+  tag_set->cmd_size = sizeof(struct rmem_rdma_request);     // [?] Send a rdma_request with the normal i/o request to remote memory server ??
+  tag_set->flags = BLK_MQ_F_SHOULD_MERGE;                   // [?]merge the i/o requets ??
+  tag_set->driver_data = rmem_dev_ctrl;                     // The driver controller, the context 
+
 
   err = blk_mq_alloc_tag_set(tag_set);      // Check & correct the value within the blk_mq_tag_set.
-	if (err)
+	if (err){
+    pr_err("blk_mq_alloc_tag_set error. \n");
 		goto out;
+  }
+
 
 out:
-  printk("init_blk_mq_tag_set error.\n");
-
   return err;
 }
 
@@ -184,9 +223,7 @@ static struct block_device_operations rmem_device_ops = {
 int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
 
   int ret = 0;
-  char disk_name[15] = "remote_mem";
   sector_t remote_mem_size = RMEM_SIZE_IN_BYTES;
-  unsigned long page_size  = PAGE_SIZE;
 
   rmem_dev_ctrl->disk = alloc_disk_node(1, NUMA_NO_NODE); // minors =1, at most have one partition.
   if(!rmem_dev_ctrl->disk){
@@ -200,80 +237,137 @@ int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
   rmem_dev_ctrl->disk->fops   = &rmem_device_ops;  // Define device operations
   rmem_dev_ctrl->disk->queue  = rmem_dev_ctrl->queue;   //  Points to the software staging request queue
   rmem_dev_ctrl->disk->private_data = rmem_dev_ctrl;    // Driver controller/context. Reserved for disk driver.
-  memcpy(rmem_dev_ctrl->disk->disk_name, disk_name, 15);
+  memcpy(rmem_dev_ctrl->disk->disk_name, rmem_dev_ctrl->dev_name, DEVICE_NAME_LEN);
 
+  sector_div(remote_mem_size, RMEM_SECT_SIZE);            // remote_mem_size /=RMEM_SECT_SIZE, return remote_mem_size%RMEM_SECT_SIZE 
+	set_capacity(rmem_dev_ctrl->disk, remote_mem_size);     // size is in remote file state->size, add size info into block device
  
-  //
-  // * set some device information
-  //
-  blk_queue_logical_block_size(rmem_dev_ctrl->queue, RMEM_SECT_SIZE);    // logical block size = 512 bytes
-	blk_queue_physical_block_size(rmem_dev_ctrl->queue, RMEM_SECT_SIZE);   // physical block size 512 bytes ??
-	sector_div(page_size, RMEM_SECT_SIZE);                // page_size /=RMEM_SECT_SIZE
-	blk_queue_max_hw_sectors(rmem_dev_ctrl->queue, page_size * MAX_SGL_LEN);   // [??]
-	sector_div(remote_mem_size, RMEM_SECT_SIZE);          // remote_mem_size /=RMEM_SECT_SIZE, return remote_mem_size%RMEM_SECT_SIZE 
-	set_capacity(rmem_dev_ctrl->disk, remote_mem_size);   // size is in remote file state->size, add size info into block device
-
    //debug
-  printk("init_gendisk : initialize disk %s done. \n"rmem_dev_ctrl->disk->disk_name);
-
-
-
-
-
+  printk("init_gendisk : initialize disk %s done. \n", rmem_dev_ctrl->disk->disk_name);
 
 alloc_disk:
   blk_cleanup_queue(rmem_dev_ctrl->queue);
 
+  return ret;
 }
 
+/**
+ * Initialize the fields of Driver controller/context.
+ * 
+ */
+int init_rmem_device_control(char* dev_name, struct rmem_device_control* rmem_dev_ctrl){
+  
+  int ret = 0;
 
-
-int RBD_create_device(char* dev_name, struct rmem_device_control* rmem_dev_ctrl ){
-
-  int err = 0;
-
-  if(dev_name == NULL ){
-    //Use default name
-    dev_name = (char*)malloc(sizeof(char)*10);
-    dev_name = "remote_bd";
+  // if driver controller is null, create a new driver context.
+  if(!rmem_dev_ctrl){
+    rmem_dev_ctrl = (struct rmem_device_control *)kzalloc(sizeof(struct rmem_device_control), GFP_KERNEL);  // kzlloc, initialize memory to zero.
+    if(!rmem_dev_ctrl){
+      ret = -1;
+      pr_err("Allocate struct rmem_device_control failed \n");
+      goto out;
+    }
   }
 
-  //
-  //[?] which parameters have to be assigned ?
-  //
-
-  // a. assign device information
-  //
+  if(dev_name != NULL ){
+    //Use assigned name
+    int len = strlen(dev_name) >= DEVICE_NAME_LEN ? DEVICE_NAME_LEN : strlen(dev_name);
+    memcpy(rmem_dev_ctrl->dev_name, dev_name, len);   // string copy or memory copy ?
+  }else{
+    strcpy(rmem_dev_ctrl->dev_name,"rmempool");       // rmem_dev_ctrl->dev_name = "xx" is wrong. Try to change the value(address) of a char pointer.
+  }
 
   rmem_dev_ctrl->major = rbd_major_num;
 
+  rmem_dev_ctrl->queue_depth  = RMEM_QUEUE_DEPTH; // 
+  rmem_dev_ctrl->nr_queues    = online_cores;     // staging queue = dispatch queue = avaible cores.
 
-  // * Check * correct thte blk_mq_tag_set
-  err = init_blk_mq_tag_set(rmem_dev_ctrl);
+  //
+  // blk_mq_tag_set, request_queue, rmem_rdma_queue are waiting to be initialized later. 
+  //
 
-  if(!err){
-    printk("RBD_create_device : Allocate blk_mq_tag_set failed. \n");
-    return err;
+out:
+  return ret;
+}
+
+
+
+
+/**
+ * The main function to create the block device. 
+ * 
+ * [?] who assigns the value of rmem_dev_ctrl ??
+ * 
+ * return 0 if success.
+ */
+int RMEM_create_device(char* dev_name, struct rmem_device_control* rmem_dev_ctrl ){
+
+  int ret = 0;  
+  unsigned long page_size; 
+
+  //
+  //  1) Initiaze the fields of rmem_device_control structure 
+  //
+  if(!rmem_dev_ctrl){
+    // driver context is null, allocate && intialize its fields 
+    ret = init_rmem_device_control( dev_name, rmem_dev_ctrl);
+    if(ret){
+      pr_err("Intialize rmem_device_control error \n");
+      goto out;
+    }
   }
 
-  // * allocate & intialize the software staging queue
+
+  // 2) Intialize thte blk_mq_tag_set
+  ret = init_blk_mq_tag_set(rmem_dev_ctrl);
+  if(ret){
+    printk("RBD_create_device : Allocate blk_mq_tag_set failed. \n");
+   goto out;
+  }
+
+
+  //
+  // 3) allocate & intialize the software staging queue
+  //
   rmem_dev_ctrl->queue = blk_mq_init_queue(&rmem_dev_ctrl->tag_set);   // Build the block i/o queue.
 	if (IS_ERR(rmem_dev_ctrl->queue )) {
-		err = PTR_ERR(rmem_dev_ctrl->queue );
+		ret = PTR_ERR(rmem_dev_ctrl->queue );
     printk("RBD_create_device : create the software staging reqeust queue failed. \n");
-		return err;
+		goto out;
 	}
   
+  //
+  // * set some device queue information
+  // i.e. Cat get these information from : /sys/block/sda/queue/*
+  // logical block size   : 4KB, The granularity of kernel read/write. From disk buffer to memory ?
+  // physical block size  : 512B aligned. The granularity read from hardware disk.  
+  // 
+  
+  
+  page_size = PAGE_SIZE;           // alignment to RMEM_SECT_SIZE
+
+  blk_queue_logical_block_size(rmem_dev_ctrl->queue, PAGE_SIZE);          // logical block size, 4KB, performance tuning. 
+	blk_queue_physical_block_size(rmem_dev_ctrl->queue, RMEM_SECT_SIZE);    // physical block size, 512B
+	sector_div(page_size, RMEM_SECT_SIZE);                  // page_size /=RMEM_SECT_SIZE
+	blk_queue_max_hw_sectors(rmem_dev_ctrl->queue, RMEM_QUEUE_MAX_SECT_SIZE);    // [?] 256kb for current /dev/sda
 
   
-  // * initiate the gendisk information
+  //
+  // 4) initiate the gendisk and request queue information
+  //
+  ret = init_gendisk(rmem_dev_ctrl);
+  if(ret){
+    pr_err("Init_gendisk failed \n");
+    goto out;
+  }
 
 
-  rmem_dev_ctrl->disk->major = rmem_dev_ctrl->major;
-  //rmem_dev_ctrl->disk->first_minor = ?
 
+  //debug
+  printk("RMEM_create_device done. \n");
 
-  return err;
+out:
+  return ret;
 
 }
 
@@ -281,8 +375,9 @@ int RBD_create_device(char* dev_name, struct rmem_device_control* rmem_dev_ctrl 
 
 
 
-static int  RBD_init_module(void){
+static int  RMEM_init_module(void){
 
+  int ret = 0;
 	//debug
   printk("Load kernel module : register remote block device. \n");
 
@@ -290,27 +385,33 @@ static int  RBD_init_module(void){
 	if (rbd_major_num < 0){
 		return rbd_major_num;
   }
-  //debug
-  printk("Got block device major number: %d \n", rbd_major_num);
-
-
-
 
   //number of staging and dispatch queues, equal to available cores
   online_cores = num_online_cpus();
+  
   //debug
-  printk(" online cores : %d \n", onlin_cores);
+  printk("Got block device major number: %d \n", rbd_major_num);
+  printk(" online cores : %d \n", online_cores);
   
 
+  //debug
+  // create the block device here
+  // Create block information within functions
+  ret = RMEM_create_device(NULL, NULL);  
+  if(ret){
+    pr_err("Crate block device error.\n");
+    goto out;
+  }
 
 
-	return 0;
+out:
+	return ret;
 }
 
 // module function
-static void RBD_cleanup_module(void){
+static void RMEM_cleanup_module(void){
 
-	unregister_blkdev(rbd_major_num, "infiniswap");
+	unregister_blkdev(rbd_major_num, "rmempool");
 
 }
 
@@ -319,5 +420,5 @@ static void RBD_cleanup_module(void){
 
 
 
-module_init(RBD_init_module);
-module_exit(RBD_cleanup_module);
+module_init(RMEM_init_module);
+module_exit(RMEM_cleanup_module);
