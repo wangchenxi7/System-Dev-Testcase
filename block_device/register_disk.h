@@ -38,6 +38,7 @@ static int rbd_major_num;
 static int online_cores;
 
 
+
 /**
  * Used for storing RDMA connection information 
  * 
@@ -133,6 +134,13 @@ struct rmem_control {
 
 
 };
+
+
+// Debug
+// Declare some global varibles
+
+static struct rmem_device_control  rmem_dev_ctl_global;
+
 
 
 #endif // REMOTEMEMPOOL

@@ -260,14 +260,18 @@ int init_rmem_device_control(char* dev_name, struct rmem_device_control* rmem_de
   int ret = 0;
 
   // if driver controller is null, create a new driver context.
-  if(!rmem_dev_ctrl){
-    rmem_dev_ctrl = (struct rmem_device_control *)kzalloc(sizeof(struct rmem_device_control), GFP_KERNEL);  // kzlloc, initialize memory to zero.
-    if(!rmem_dev_ctrl){
+  //if(!rmem_dev_ctrl){
+
+    //
+    // [?] Can we don the allocation during kernel booting time ??
+    // 
+    //rmem_dev_ctrl = (struct rmem_device_control *)kzalloc(sizeof(struct rmem_device_control), GFP_KERNEL);  // kzlloc, initialize memory to zero.
+    if(rmem_dev_ctrl == NULL){
       ret = -1;
       pr_err("Allocate struct rmem_device_control failed \n");
       goto out;
     }
-  }
+ // }
 
   if(dev_name != NULL ){
     //Use assigned name
@@ -308,15 +312,17 @@ int RMEM_create_device(char* dev_name, struct rmem_device_control* rmem_dev_ctrl
   //
   //  1) Initiaze the fields of rmem_device_control structure 
   //
-  if(!rmem_dev_ctrl){
-    // driver context is null, allocate && intialize its fields 
-    ret = init_rmem_device_control( dev_name, rmem_dev_ctrl);
-    if(ret){
-      pr_err("Intialize rmem_device_control error \n");
-      goto out;
-    }
+  if(rmem_dev_ctrl == NULL ){    
+    pr_err("Can not pass a null pointer to initialize. \n");
+    ret = -1;
+    goto out;
   }
 
+  ret = init_rmem_device_control( dev_name, rmem_dev_ctrl);
+  if(ret){
+    pr_err("Intialize rmem_device_control error \n");
+    goto out;
+  }
 
   // 2) Intialize thte blk_mq_tag_set
   ret = init_blk_mq_tag_set(rmem_dev_ctrl);
@@ -397,7 +403,8 @@ static int  RMEM_init_module(void){
   //debug
   // create the block device here
   // Create block information within functions
-  ret = RMEM_create_device(NULL, NULL);  
+  
+  ret = RMEM_create_device(NULL, &rmem_dev_ctl_global);  
   if(ret){
     pr_err("Crate block device error.\n");
     goto out;

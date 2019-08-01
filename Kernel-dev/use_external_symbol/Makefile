@@ -2,7 +2,7 @@
 
 
 
-KSYMVERS=	/mnt/ssd/wcx/testcase/Kernel-dev/external_symbol_provider/Module.sysvers
+KSYMVERS=	/mnt/ssd/wcx/testcase/Kernel-dev/external_symbol_provider/Module.symvers
 
 
 obj-m += use_external_symbol.o
