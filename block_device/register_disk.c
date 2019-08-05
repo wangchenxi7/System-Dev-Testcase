@@ -10,6 +10,17 @@
  * 4) maintain the RDMA connection to remote server.
  * 
  * 
+ * ##########################################
+ * The hierarchy :
+ * 
+ * File system    // [?] What's its purpose ?
+ *     V
+ *  I/O layer     // handle  the i/o request from file system.
+ *     V
+ *  Disk dirver   // We are working on this layer.
+ * 
+ * ###########################################
+ * 
  */
 
 
@@ -40,7 +51,7 @@ MODULE_VERSION("1.0");
  * hctx :  
  *      The hardware dispatch queue context.
  * 
- * data : who assigns this parater ??
+ * data : who assigns this parameter ??
  *      seems the data is the rdd_device_control, the driver controller/context.
  * 
  * hw_index : 
@@ -64,6 +75,9 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int h
 }
 
 
+
+
+
 /**
  * Dirver gets request fomr the hardware dispatch queue ??
  * blk_mq_ops->queue_rq is the regsitered function to handle this request. 
@@ -73,6 +87,18 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int h
  * blk_mq_queeu_data : stores the requet gotten from staging queue.
  * blk_mq_hw_ctx
  * 
+ * => What's the usage for these parameters ? 
+ * 
+ * 
+ * [?] blk_mq_hw_ctx :
+ *      blk_mq_hw_ctx->driver_data : The rdma connection context ? Why do we want to put these information here ?
+ *      
+ * 
+ * [?] blk_mq_queue_data : store the real read/write data ?
+ * 
+ * 
+ * [?] For the use of bio : Documentation/block/biodoc.txt
+ * 
  */
 static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd){
 
@@ -80,12 +106,39 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
 
   struct rmem_rdma_queue* rmem_rdma_q = hctx->driver_data;   // blk_mq_hw_ctx->driver_data  stores the RDMA connection context.
   struct request *rq = bd->rq;
+  int len = rq->nr_phys_segments;  // number of bio ??
 
   //
   // TO BE DONE
   //
-
+  ret = BLK_MQ_RQ_QUEUE_OK;  // Always return queued success, will this cause problem ? read no data back.
   printk("rmem_queue_rq: get a request.  \n");
+  printk("number of bio (rq->nr_phys_segments):  %d \n ", len);
+
+
+  // Start the reqeust 
+  // [?] Inform some hardware, we are going to handle this request ?
+  blk_mq_start_request(rq);
+
+
+
+
+  // 
+  // [?] Handle the bio 
+  //      read/write data into  the disk array.
+  //
+  //
+  // [?] difference between request->request_queue and rmem_dev_ctl_global->request_queue ? Should be the same one ?
+  //
+
+
+  //
+  // Finish of the i/o request 
+  // [x] Let's just return a NULL data back .
+  // Return or NOT is managed by the driver.
+  // The content is correct OR not is checked by the applcations.
+  //
+  blk_mq_complete_request(rq,rq->errors);  // use 0 or rq->errors ?
 
 out:
   return ret;
@@ -93,6 +146,21 @@ out:
 }
 
 
+
+/**
+ * [?] When driver finishes the file page reading, notify some where?
+ * 
+ */
+int rmem_end_io(struct bio * bio, int err){
+
+  // Who assigns the request as bio->bi_private ??
+ // struct request * req = (struct request*)ptr_from_uint64(bio->bi_private);
+
+  // notify i/o scheduler?
+ // blk_mq_end_request(req, err);
+
+  return err;
+}
 
 
 
@@ -126,7 +194,11 @@ static struct blk_mq_ops rmem_mq_ops = {
 /**
  * blk_mq_tag_set stores all the disk information. Both hardware and software
  * 
- * [?] Used to initialize hardware dispatch queue
+ *  I/O requets control.
+ *      blk_mq_tag_set->ops : Define the request enqueue (staging queue) behavior
+ *      blk_mq_tag_set->nr_hw_queues : number of hardware dispatch queue. usually, stage queue = dispatch queue = avaible cores 
+ * 
+ *      blk_mq_tag_set->driver_data   : points to driver controller.
  * 
  * [?] For the staging queue, set the information within it directly ?
  * 
@@ -160,6 +232,9 @@ static int init_blk_mq_tag_set(struct rmem_device_control* rmem_dev_ctrl){
 
 out:
   return err;
+
+error:
+  pr_err(" Error in  init_blk_mq_tag_set \n");
 }
 
 
@@ -181,6 +256,10 @@ out:
 
 static int rmem_dev_open(struct block_device *bd, fmode_t mode)
 {
+
+  // What should this function do ?
+  // open some hardware disk by path ??
+
 	pr_debug("%s called\n", __func__);
 	return 0;
 }
@@ -209,17 +288,49 @@ static int rmem_dev_ioctl(struct block_device *bd, fmode_t mode,
 	return -ENOTTY;
 }
 
+// [?] As a memory pool, how to assign the geometry information ?
+// Assign some value like the nvme driver ?
+int rmem_getgeo(struct block_device * block_device, struct hd_geometry * geo){
+  	pr_debug("%s called\n", __func__);
+	return -ENOTTY;
+}
 
+/**
+ * Device operations (for disk tools, user space behavior)
+ *    open : open  device for formating ?
+ *    release : delete the blockc device.
+ * 
+ *    getgeo  : get disk geometry. i.e. fdisk need this information.
+ * 
+ * more :
+ *    read/write is for i/o request handle.
+ * 
+ */
 static struct block_device_operations rmem_device_ops = {
 	.owner            = THIS_MODULE,
 	.open 	          = rmem_dev_open,
 	.release 	        = rmem_dev_release,
 	.media_changed    = rmem_dev_media_changed,
 	.revalidate_disk  = rmem_dev_revalidate,
-	.ioctl	          = rmem_dev_ioctl
+	.ioctl	          = rmem_dev_ioctl,
+  .getgeo           = rmem_getgeo,
 };
 
-
+/**
+ * Allocate & intialize the gendisk.
+ * The main controller for Block Device hardare.
+ * 
+ * [?] Show a device under /dev/
+ * alloc_disk_node()  : allocate gendisk handler
+ * add_disk()         : add to /dev/
+ * 
+ * Fields :
+ *    gendisk->ops    : define device operation 
+ *    gendisk->queue  : points to staging queue
+ *    gendisk->private_data : driver controller.
+ * 
+ * 
+ */
 int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
 
   int ret = 0;
@@ -229,30 +340,39 @@ int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
   if(!rmem_dev_ctrl->disk){
     pr_err("%s: Failed to allocate disk node\n", __func__);
 		ret = -ENOMEM;
-    goto alloc_disk;
+    goto out;
   }
 
   rmem_dev_ctrl->disk->major  = rmem_dev_ctrl->major;
   rmem_dev_ctrl->disk->first_minor = 0;  // The partition id, start from 0.
-  rmem_dev_ctrl->disk->fops   = &rmem_device_ops;  // Define device operations
-  rmem_dev_ctrl->disk->queue  = rmem_dev_ctrl->queue;   //  Points to the software staging request queue
+  rmem_dev_ctrl->disk->fops   = &rmem_device_ops;       // Define device operations
+  rmem_dev_ctrl->disk->queue  = rmem_dev_ctrl->queue;   // Assign the hardware dispatch queue
   rmem_dev_ctrl->disk->private_data = rmem_dev_ctrl;    // Driver controller/context. Reserved for disk driver.
   memcpy(rmem_dev_ctrl->disk->disk_name, rmem_dev_ctrl->dev_name, DEVICE_NAME_LEN);
 
-  sector_div(remote_mem_size, RMEM_SECT_SIZE);            // remote_mem_size /=RMEM_SECT_SIZE, return remote_mem_size%RMEM_SECT_SIZE 
+  sector_div(remote_mem_size, RMEM_LOGICAL_SECT_SIZE);    // remote_mem_size /=RMEM_SECT_SIZE, return remote_mem_size%RMEM_SECT_SIZE 
 	set_capacity(rmem_dev_ctrl->disk, remote_mem_size);     // size is in remote file state->size, add size info into block device
  
+  // Add disk to /dev/
+  // [?] add it to some list ??
+  // After call this function, disk is active and prepared well for any i/o request.
+  add_disk(rmem_dev_ctrl->disk);
+
    //debug
   printk("init_gendisk : initialize disk %s done. \n", rmem_dev_ctrl->disk->disk_name);
 
-alloc_disk:
-  blk_cleanup_queue(rmem_dev_ctrl->queue);
+out:
+  return ret;
 
+error:
+  del_gendisk(rmem_dev_ctrl->disk);
   return ret;
 }
 
 /**
  * Initialize the fields of Driver controller/context.
+ * 
+ *
  * 
  */
 int init_rmem_device_control(char* dev_name, struct rmem_device_control* rmem_dev_ctrl){
@@ -341,6 +461,12 @@ int RMEM_create_device(char* dev_name, struct rmem_device_control* rmem_dev_ctrl
     printk("RBD_create_device : create the software staging reqeust queue failed. \n");
 		goto out;
 	}
+
+  // request_queue->queuedata is reservered for driver usage.
+  // works like : 
+  // blk_mq_tag_set->driver_data 
+  // gendisk->private_data
+  rmem_dev_ctrl->queue->queuedata = rmem_dev_ctrl;
   
   //
   // * set some device queue information
@@ -352,14 +478,14 @@ int RMEM_create_device(char* dev_name, struct rmem_device_control* rmem_dev_ctrl
   
   page_size = PAGE_SIZE;           // alignment to RMEM_SECT_SIZE
 
-  blk_queue_logical_block_size(rmem_dev_ctrl->queue, PAGE_SIZE);          // logical block size, 4KB, performance tuning. 
-	blk_queue_physical_block_size(rmem_dev_ctrl->queue, RMEM_SECT_SIZE);    // physical block size, 512B
-	sector_div(page_size, RMEM_SECT_SIZE);                  // page_size /=RMEM_SECT_SIZE
-	blk_queue_max_hw_sectors(rmem_dev_ctrl->queue, RMEM_QUEUE_MAX_SECT_SIZE);    // [?] 256kb for current /dev/sda
+  blk_queue_logical_block_size(rmem_dev_ctrl->queue, RMEM_LOGICAL_SECT_SIZE);          // logical block size, 4KB. Access granularity generated by Kernel
+	blk_queue_physical_block_size(rmem_dev_ctrl->queue, RMEM_PHY_SECT_SIZE);    // physical block size, 512B. Access granularity generated by Drvier (to handware disk)
+	sector_div(page_size, RMEM_LOGICAL_SECT_SIZE);                              // page_size /=RMEM_SECT_SIZE
+	blk_queue_max_hw_sectors(rmem_dev_ctrl->queue, RMEM_QUEUE_MAX_SECT_SIZE);   // [?] 256kb for current /dev/sda
 
   
   //
-  // 4) initiate the gendisk and request queue information
+  // 4) initiate the gendisk (device information) & add the device into kernel list (/dev/).
   //
   ret = init_gendisk(rmem_dev_ctrl);
   if(ret){
@@ -387,6 +513,13 @@ static int  RMEM_init_module(void){
 	//debug
   printk("Load kernel module : register remote block device. \n");
 
+
+  // Become useless since 4.9, maybe removed latter.
+  // Get a major number, list the divice under /proc/devices
+  // i.e.
+  // <major_number> <device_name>
+  // 252 rmempool
+  //
 	rbd_major_num = register_blkdev(0, "rmempool");
 	if (rbd_major_num < 0){
 		return rbd_major_num;

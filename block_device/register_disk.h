@@ -24,7 +24,8 @@
 
 
 // Disk hardware information
-#define RMEM_SECT_SIZE							512 	// disk sector size, bytes ??
+#define RMEM_PHY_SECT_SIZE					512 	// physical sector seize, used by driver (to disk).
+#define RMEM_LOGICAL_SECT_SIZE			4096	// logical sector seize, used by kernel (to i/o).
 //#define RMEM_REQUEST_QUEUE_NUM     2  	// for debug, use the online_cores
 #define RMEM_QUEUE_DEPTH           	16  	// [?]  1 - (-1U), what's the good value ? 
 #define RMEM_QUEUE_MAX_SECT_SIZE		1024 	// The max number of sectors per request, /sys/block/sda/queue/max_hw_sectors_kb is 256
@@ -102,9 +103,9 @@ struct rmem_device_control {
 	//struct r_stat64		     stbuf; /* remote file stats*/
 	//char			     						file_name[DEVICE_NAME_LEN];       // [?] Do we need a file name ??
 	//struct list_head	     		list;           /* next node in list of struct IS_file */    // Why do we need such a list ??
-	struct gendisk		    		*disk;           // [?] the real disk ?? For NBD, points to ?
-	struct request_queue	    *queue; 	/* The device request queue */
-	struct blk_mq_tag_set	    tag_set;
+	struct gendisk		    		*disk;        // [?] The disk information, logical/physical sectior size ? 
+	struct request_queue	    *queue; 			// The software staging request queue
+	struct blk_mq_tag_set	    tag_set;			// Used for information passing. Define blk_mq_ops.(block_device_operations is defined in gendisk.)
 	
   //[?] What's  this queue used for ?
   struct rmem_rdma_queue	  *rdma_queues;			//  [?] The rdma connection session ?? one rdma session queue per software staging queue ??
@@ -114,8 +115,13 @@ struct rmem_device_control {
 	char			            		dev_name[DEVICE_NAME_LEN];
 	//struct rdma_connection	    **IS_conns;
 	//struct config_group	     dev_cg;
-	//spinlock_t		        	state_lock;
+	spinlock_t		        		rmem_ctl_lock;					// mutual exclusion
 	//enum IS_dev_state	     state;	
+
+	// Below fields are used for debug.
+	//
+	struct block_device *bdev_raw;			// Points to a local block device. 
+	struct bio_list bio_list;
 };
 
 
