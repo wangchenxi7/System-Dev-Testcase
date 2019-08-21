@@ -41,10 +41,10 @@ int main(int argc, char   *argv[ ])
    	struct ibv_comp_channel			*comp_chan; 
    	struct ibv_cq					*cq; 
    	struct ibv_cq					*evt_cq; 
-   	struct ibv_mr					*mr; 
+   	struct ibv_mr					*mr; 					// The memory region to read/write ? is this the DMA buffer ?
    	struct ibv_qp_init_attr			qp_attr = { }; 
-   	struct ibv_sge					sge; 
-   	struct ibv_send_wr				send_wr = { }; 
+   	struct ibv_sge					sge; 					// sge : scatter, gather ? 
+   	struct ibv_send_wr				send_wr = { };          // attach the dma buffer address to wr and send/recive it ?
    	struct ibv_send_wr 				*bad_send_wr; 
    	struct ibv_recv_wr				recv_wr = { }; 
    	struct ibv_recv_wr				*bad_recv_wr; 
@@ -125,6 +125,9 @@ int main(int argc, char   *argv[ ])
 	if (!buf) 
 		return 1;
 
+	// Register the DMA buffer ?
+	// [?] The buffer should be bound with ibv_sge, then to ibv_wr. 
+	// 		What's the mr used for. 
 	mr = ibv_reg_mr(pd, buf,2 * sizeof(uint32_t), IBV_ACCESS_LOCAL_WRITE); 
 	if (!mr) 
 		return 1;
@@ -165,14 +168,16 @@ int main(int argc, char   *argv[ ])
 
 	sge.addr = (uintptr_t) buf; 
 	sge.length = sizeof (uint32_t);
-	sge.lkey = mr->lkey;
+	sge.lkey = mr->lkey;					// ibv_sge->lkey is gotten from the ibv_mr->lkey ??
 
 	recv_wr.wr_id =     0;                
 	recv_wr.sg_list =   &sge;
 	recv_wr.num_sge =   1;
 
+	// [?] Why do we post a receive before build the RDMA conenction ??
+	// 
 	if (ibv_post_recv(cm_id->qp, &recv_wr, &bad_recv_wr))
-					return 1;
+		return 1;
 
 	/* 寫入/傳送要新增的兩個整數 */
 

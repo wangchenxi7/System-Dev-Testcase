@@ -35,26 +35,18 @@
 #define RMEM_SIZE_IN_BYTES  (unsigned long)1024*1024*1024*8  // 8GB
 
 
-static int rbd_major_num;
+static int rmem_major_num;
 static int online_cores;
 
 
 
-/**
- * Used for storing RDMA connection information 
- * 
- * 
- */
-struct rmem_rdma_connection	{
-
-  int tmp;  // empty.
-
-};
 
 
-// Send with the i/o request to the remote memory server ??
-//
-struct rmem_rdma_request {
+// Driver data for each request
+// Attach this struct at the end of request and send it to the device.
+// 	  i.e.	request will reserve size for this request command : requet->cmd_size
+//					Acccess by : blk_mq_rq_to_pdu(request)
+struct rmem_rdma_cmd {
 	//struct nvme_request	req;
 	struct ib_mr		*mr;
 	//struct nvme_rdma_qe	sqe;
@@ -72,13 +64,19 @@ struct rmem_rdma_request {
 
 
 /**
- * [?] What's the purpose of this queue ??
- * used for RDMA connection
+ * Driver data for dispatch queue context(hctx).
+ * One rmem_rdma_queue per hctx.
+ * 		i.e. Set as	the blk_mq_hw_ctx->driver_data
+ * 
+ * [?] We can store all the RDMA connection information here.
  * 
  */
 struct rmem_rdma_queue {
-	struct rmem_rdma_connection	      *rmem_conn;				// RDMA session connection 
-	struct rmem_device_control	      *rmem_dev_ctrl;  	// pointer to parent, the device driver 
+	struct rmem_rdma_cmd				*rmem_conn;				// RDMA session connection 
+	struct rmem_device_control	      	*rmem_dev_ctrl;  	// pointer to parent, the device driver 
+
+	// other fields
+
 };
 
 
@@ -88,7 +86,8 @@ struct rmem_rdma_queue {
 
 /**
  * Block device information
- * This structure is the driver context data. 
+ * This structure is the driver context data.  
+ * 		i.e. blk_mq_tag_set->driver_data
  * 
  * 
  * [?] One rbd_device_control should record all the connection_queues ??
@@ -108,7 +107,7 @@ struct rmem_device_control {
 	struct blk_mq_tag_set	    tag_set;			// Used for information passing. Define blk_mq_ops.(block_device_operations is defined in gendisk.)
 	
   //[?] What's  this queue used for ?
-  struct rmem_rdma_queue	  *rdma_queues;			//  [?] The rdma connection session ?? one rdma session queue per software staging queue ??
+  	struct rmem_rdma_queue	  *rdma_queues;			//  [?] The rdma connection session ?? one rdma session queue per software staging queue ??
 	unsigned int		      		queue_depth;      //[?] How to set these numbers ?
 	unsigned int		      		nr_queues;				// [?] pass to blk_mq_tag_set->nr_hw_queues ??
 	//int			              		index; /* drive idx */
@@ -127,19 +126,6 @@ struct rmem_device_control {
 
 
 
-/**
- * Store all the information need for Block device, RDMA connection ??
- * 
- */
-struct rmem_control {
-
-  // information for the remote block device
-  struct rmem_device_control* rmem_deb;
-
-  // information for RDMA
-
-
-};
 
 
 // Debug
