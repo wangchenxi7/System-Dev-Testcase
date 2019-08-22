@@ -45,21 +45,22 @@ MODULE_VERSION("1.0");
 //
 // Disk hardware information
 //
-#define RMEM_PHY_SECT_SIZE					512 	// physical sector seize, used by driver (to disk).
+#define RMEM_PHY_SECT_SIZE				512 	// physical sector seize, used by driver (to disk).
 #define RMEM_LOGICAL_SECT_SIZE			4096	// logical sector seize, used by kernel (to i/o).
-//#define RMEM_REQUEST_QUEUE_NUM     2  	// for debug, use the online_cores
-#define RMEM_QUEUE_DEPTH           	16  	// [?]  1 - (-1U), what's the good value ? 
+//#define RMEM_REQUEST_QUEUE_NUM     	2  		// for debug, use the online_cores
+#define RMEM_QUEUE_DEPTH           		16  	// [?]  1 - (-1U), what's the good value ? 
 #define RMEM_QUEUE_MAX_SECT_SIZE		1024 	// The max number of sectors per request, /sys/block/sda/queue/max_hw_sectors_kb is 256
-#define DEVICE_NAME_LEN							32
+#define DEVICE_NAME_LEN					32
 
 
 //
 // RDMA related macros  
 //
 
-#define RMEM_SIZE_IN_BYTES  (unsigned long)1024*1024*1024*8  // 8GB
-#define MAX_MR_SIZE_GB 32 
-#define RDMA_READ_WRITE_QUEUE_DEPTH	16		// [?] connection with the Disk dispatch queue depth ??
+#define RMEM_SIZE_IN_BYTES  			(unsigned long)1024*1024*1024*8  // 8GB
+#define CHUNK_SIZE_GB					1
+#define MAX_MR_SIZE_GB 					32 
+#define RDMA_READ_WRITE_QUEUE_DEPTH		16		// [?] connection with the Disk dispatch queue depth ??
 
 
 
@@ -69,17 +70,34 @@ MODULE_VERSION("1.0");
 
 
 
+// from kernel 
+/*  host to network long long
+ *  endian dependent
+ *  http://www.bruceblinn.com/linuxinfo/ByteOrder.html
+ */
+#define ntohll(x) (((uint64_t)(ntohl((int)((x << 32) >> 32))) << 32) | \
+		    (unsigned int)ntohl(((int)(x >> 32))))
+#define htonll(x) ntohll(x)
+
+#define htonll2(x) cpu_to_be64((x))
+#define ntohll2(x) cpu_to_be64((x))
+
+
+
+
+
+
 /**
  * Used for message passing control
  * For both CM event, data evetn.
  * RDMA data transfer is desinged in an asynchronous style. 
  */
 enum rdma_session_context_state { 
-	IDLE = 1,		 // Start from 1.
+	IDLE = 1,		 // 1, Start from 1.
 	CONNECT_REQUEST,
 	ADDR_RESOLVED,
 	ROUTE_RESOLVED,
-	CONNECTED,		//5,  updated by IS_cma_event_handler()
+	CONNECTED,		// 5,  updated by IS_cma_event_handler()
 	FREE_MEM_RECV,
 	AFTER_FREE_MEM,
 	RDMA_BUF_ADV,   // designed for server
@@ -89,14 +107,12 @@ enum rdma_session_context_state {
 	RDMA_WRITE_RUNNING,
 	RDMA_READ_RUNNING,
 	SEND_DONE,
-	RDMA_DONE,     	//15
+	RDMA_DONE,     	// 15
 	RDMA_READ_ADV,	// updated by IS_cq_event_handler()
 	RDMA_WRITE_ADV,
 	CM_DISCONNECT,
 	ERROR,
-
-	//self defined
-	SEND_MESSAGE   
+	TEST_DONE,		// 20, for debug
 };
 
 
@@ -109,65 +125,89 @@ enum mem_type {
 };
 
 /**
- * RDMA message structure.
+ * Two-sided RDMA message structure.
  * We use 2-sieded RDMA communication to exchange information between Client and Server.
  * Both Client and Server have the same message structure. 
  */
 struct message {
-  	uint64_t buf[MAX_MR_SIZE_GB];		// Remote addr ??
+  	
+	// Information of the chunk to be mapped to remote memory server.
+	uint64_t buf[MAX_MR_SIZE_GB];		// Remote addr.
   	uint32_t rkey[MAX_MR_SIZE_GB];   	// remote key
-  	int size_gb;	
+  	int size_gb;						// Size of the chunk ?
+
 	enum {
 		DONE = 1,
-		INFO,
-		INFO_SINGLE,
+		INFO,					// Get the remote_addr/rkey of multiple Chunks
+		INFO_SINGLE,			// Get the remote_addr/rkey of a single Chunk
 		FREE_SIZE,
 		EVICT,        // 5
 		ACTIVITY,
 		STOP,
 		BIND,
-		BIND_SINGLE,
+		BIND_SINGLE,			// Send a request to ask for a single chunk.
 		QUERY         // 10
 	} type;
 };
 
 
 
-enum chunk_list_state {
-	C_IDLE,
-	C_READY,
-	C_EVICT,
-	C_STOP,
-	// C_OFFLINE	
+// enum chunk_list_state {
+// 	C_IDLE,
+// 	C_READY,
+// 	C_EVICT,
+// 	C_STOP,
+// 	// C_OFFLINE	
+// };
+
+
+// // 1GB remote chunk struct	("chunk": we use the term "slab" in our paper)
+// struct remote_chunk_g {
+// 	uint32_t remote_rkey;		/* remote guys RKEY */
+// 	uint64_t remote_addr;		/* remote guys TO */
+// 	//uint64_t remote_len;		/* remote guys LEN */
+// 	int *bitmap_g;	//1GB bitmap
+// };
+
+
+
+// struct remote_chunk_g_list {
+// 	struct remote_chunk_g **chunk_list;
+// 	atomic_t *remote_mapped; 
+// 	int chunk_size_g; //size = chunk_num * ONE_GB
+// 	int target_size_g; // == future size of remote
+// 	int shrink_size_g;
+// 	int *chunk_map;	//cb_chunk_index to session_chunk_index
+// 	struct task_struct *evict_handle_thread;
+// 	char *evict_chunk_map;
+// 	wait_queue_head_t sem;      	              //[?] What's the use for this semaphore ?
+// 	enum chunk_list_state c_state;
+// };
+
+
+enum chunk_mapping_state {
+	EMPTY,		// 0
+	MAPPED,		// 1
 };
 
 
-// 1GB remote chunk struct	("chunk": we use the term "slab" in our paper)
-struct remote_chunk_g {
-	uint32_t remote_rkey;		/* remote guys RKEY */
-	uint64_t remote_addr;		/* remote guys TO */
-	//uint64_t remote_len;		/* remote guys LEN */
-	int *bitmap_g;	//1GB bitmap
+//
+// Default size is 1 GB
+//
+struct remote_mapping_chunk {
+	uint32_t 					remote_rkey;		/* remote guys RKEY */
+	uint64_t 					remote_addr;		/* remote guys TO */
+	enum chunk_mapping_state 	chunk_state;
 };
 
 
-struct remote_chunk_g_list {
-	struct remote_chunk_g **chunk_list;
-	atomic_t *remote_mapped; 
-	int chunk_size_g; //size = chunk_num * ONE_GB
-	int target_size_g; // == future size of remote
-	int shrink_size_g;
-	int *chunk_map;	//cb_chunk_index to session_chunk_index
-	struct task_struct *evict_handle_thread;
-	char *evict_chunk_map;
-	wait_queue_head_t sem;      	              //[?] What's the use for this semaphore ?
-	enum chunk_list_state c_state;
+struct remote_mapping_chunk_list {
+	struct remote_mapping_chunk *remote_chunk;		
+	//int chunk_size_gb;  		// defined in macro
+	int remote_free_size_gb;
+	int chunk_num;				// length of remote_chunk list
+
 };
-
-
-
-
-
 
 
 
@@ -302,10 +342,15 @@ struct rdma_session_context {
 
 
 	// For RDMA read/write
+	// Record the mapped chunk
+	// Should we try to map all the chunk at the start time ?
+
 //	struct ib_mr *rdma_mr;
 
 //  	uint64_t remote_len;		/* remote guys LEN */
-	struct remote_chunk_g_list remote_chunk;    
+	// Record the mapped chunk information.
+	//
+	struct remote_mapping_chunk_list remote_chunk_list;
 
 };
 
@@ -403,42 +448,7 @@ struct rmem_device_control {
 
 
 
-/**
- * ######## Resource Free Functions ##########
- */
 
-static void octopus_free_qp(struct rdma_session_context *rdma_session)
-{
-
-	if (rdma_session == NULL)
-		return;
-
-	if(rdma_session->qp != NULL)
-		ib_destroy_qp(rdma_session->qp);
-	
-	if(rdma_session->cq != NULL)
-		ib_destroy_cq(rdma_session->cq);
-
-	if(rdma_session->pd != NULL)
-		ib_dealloc_pd(rdma_session->pd);
-}
-
-
-
-static int octopus_disconenct_and_collect_resource(struct rdma_session_context *rdma_session){
-
-	int ret;
-
-	ret = rdma_disconnect(rdma_session);
-	if(ret){
-		printk(KERN_ERR "%s, RDMA disconnect failed. \n",__func__);
-	}
-
-	// Free hardware resource.
-		// !! TO BE DONE.
-
-	return ret;
-}
 
 
 
@@ -475,13 +485,16 @@ static int octopus_disconenct_and_collect_resource(struct rdma_session_context *
 /**
  * ########## Function declaration ##########
  */
-static	int 	octopus_RDMA_connect(struct rdma_session_context * rdma_session);
-static 	void 	octopus_cq_event_handler(struct ib_cq * cq, void *rdma_session_context);
+static	int 	octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr);
 static 	int 	octopus_rdma_cm_event_handler(struct rdma_cm_id *cma_id, struct rdma_cm_event *event);
 
+static 	void 	octopus_cq_event_handler(struct ib_cq * cq, void *rdma_session_context);
+static 	int 	handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_wc *wc);
+static 	int 	send_messaget_to_remote(struct rdma_session_context *rdma_session, int messge_type  , int size_gb);
+		void 	map_single_remote_memory_chunk(struct rdma_session_context *rdma_session);
+static 	int 	init_remote_chunk_list(struct rdma_session_context *rdma_session );
 
-
-
+static int 		octopus_disconenct_and_collect_resource(struct rdma_session_context *rdma_session);
 
 /** 
  * ########## Declare some global varibles ##########
@@ -489,13 +502,13 @@ static 	int 	octopus_rdma_cm_event_handler(struct rdma_cm_id *cma_id, struct rdm
 
 // Initialize in main().
 // One rdma_session_context per memory server connected by IB. 
-struct rdma_session_context * rdma_session_global;
-static struct rmem_device_control  rmem_dev_ctl_global;
+struct rdma_session_context 		*rdma_session_global;
+static struct rmem_device_control  	rmem_dev_ctl_global;
 
 
 
-static int rmem_major_num;
-static int online_cores;
+//static int rmem_major_num;
+//static int online_cores;
 
 
 
@@ -509,74 +522,146 @@ static int online_cores;
  */
 	   
 // Print the string of rdma_session_context state.
-void rdma_session_context_state_print(int id){
+// void rdma_session_context_state_print(int id){
+
+// 	switch (id){
+
+// 		case 1 :
+// 			printk("IDLE \n");
+// 			break;
+// 		case 2 :
+// 			printk("CONNECT_REQUEST \n");
+// 			break;
+// 		case 3 :
+// 			printk("ADDR_RESOLVED \n");
+// 			break;
+// 		case 4 :
+// 			printk("ROUTE_RESOLVED \n");
+// 			break;
+// 		case 5 :
+// 			printk("CONNECTED \n");
+// 			break;
+// 		case 6 :
+// 			printk("FREE_MEM_RECV \n");
+// 			break;
+// 		case 7 :
+// 			printk("AFTER_FREE_MEM \n");
+// 			break;
+// 		case 8 :
+// 			printk("RDMA_BUF_ADV \n");
+// 			break;
+// 		case 9 :
+// 			printk("WAIT_OPS \n");
+// 			break;
+// 		case 10 :
+// 			printk("RECV_STOP \n");
+// 			break;
+// 		case 11 :
+// 			printk("RECV_EVICT \n");
+// 			break;
+// 		case 12 :
+// 			printk("RDMA_WRITE_RUNNING \n");
+// 			break;
+// 		case 13 :
+// 			printk("RDMA_READ_RUNNING \n");
+// 			break;
+// 		case 14 :
+// 			printk("SEND_DONE \n");
+// 			break;
+// 		case 15 :
+// 			printk("RDMA_DONE \n");
+// 			break;
+// 		case 16 :
+// 			printk("RDMA_READ_ADV \n");
+// 			break;
+// 		case 17 :
+// 			printk("RDMA_WRITE_ADV \n");
+// 			break;
+// 		case 18 :
+// 			printk("CM_DISCONNECT \n");
+// 			break;
+// 		case 19 :
+// 			printk("ERROR \n");
+// 			break;
+	
+// 		default :
+// 			printk("Un-defined rdma_session_context state. \n");
+// 			break;
+// 	}
+
+// 	return;
+// }
+
+
+char* rdma_session_context_state_print(int id){
+
+	char* message_type_name;
+	message_type_name = (char*)kzalloc(32, GFP_KERNEL); // 32 bytes.
 
 	switch (id){
 
 		case 1 :
-			printk("IDLE \n");
+			strcpy(message_type_name, "IDLE");
 			break;
 		case 2 :
-			printk("CONNECT_REQUEST \n");
+			strcpy(message_type_name, "CONNECT_REQUEST");
 			break;
 		case 3 :
-			printk("ADDR_RESOLVED \n");
+			strcpy(message_type_name, "ADDR_RESOLVED");
 			break;
 		case 4 :
-			printk("ROUTE_RESOLVED \n");
+			strcpy(message_type_name, "ROUTE_RESOLVED");
 			break;
 		case 5 :
-			printk("CONNECTED \n");
+			strcpy(message_type_name, "CONNECTED");
 			break;
 		case 6 :
-			printk("FREE_MEM_RECV \n");
+			strcpy(message_type_name, "FREE_MEM_RECV");
 			break;
 		case 7 :
-			printk("AFTER_FREE_MEM \n");
+			strcpy(message_type_name, "AFTER_FREE_MEM");
 			break;
 		case 8 :
-			printk("RDMA_BUF_ADV \n");
+			strcpy(message_type_name, "RDMA_BUF_ADV");
 			break;
 		case 9 :
-			printk("WAIT_OPS \n");
+			strcpy(message_type_name, "WAIT_OPS");
 			break;
 		case 10 :
-			printk("RECV_STOP \n");
+			strcpy(message_type_name, "RECV_STOP");
 			break;
 		case 11 :
-			printk("RECV_EVICT \n");
+			strcpy(message_type_name, "RECV_EVICT");
 			break;
 		case 12 :
-			printk("RDMA_WRITE_RUNNING \n");
+			strcpy(message_type_name, "RDMA_WRITE_RUNNING");
 			break;
 		case 13 :
-			printk("RDMA_READ_RUNNING \n");
+			strcpy(message_type_name, "RDMA_READ_RUNNING");
 			break;
 		case 14 :
-			printk("SEND_DONE \n");
+			strcpy(message_type_name, "SEND_DONE");
 			break;
 		case 15 :
-			printk("RDMA_DONE \n");
+			strcpy(message_type_name, "RDMA_DONE");
 			break;
 		case 16 :
-			printk("RDMA_READ_ADV \n");
+			strcpy(message_type_name, "RDMA_READ_ADV");
 			break;
 		case 17 :
-			printk("RDMA_WRITE_ADV \n");
+			strcpy(message_type_name, "RDMA_WRITE_ADV");
 			break;
 		case 18 :
-			printk("CM_DISCONNECT \n");
+			strcpy(message_type_name, "CM_DISCONNECT");
 			break;
 		case 19 :
-			printk("ERROR \n");
+			strcpy(message_type_name, "ERROR");
 			break;
 	
 		default :
-			printk("Un-defined rdma_session_context state. \n");
+			strcpy(message_type_name, "Un-defined state.");
 			break;
 	}
 
-	return;
+	return message_type_name;
 }
-
-
