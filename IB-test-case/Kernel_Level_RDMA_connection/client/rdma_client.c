@@ -724,43 +724,15 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 
 
 /**
- * Get a chunk mapping 2-sided RDMA message.
+ *  Post a 2-sided request for chunk mapping.
  * 
- * The information is stored in the recv WR associated DMA buffer.
- * Record the address of the mapped chunk:
- * 		remote_rkey : Used by the client, read/write data here.
- * 		remote_addr : The actual virtual address of the mapped chunk ?
  * 
+ * 
+ * More Explanation
+ * 	We can only post a cqe notification per time, OR these cqe notifications may overlap and lost.
+ * 	So we post the cqe notification in cq_event_handler function.
  * 
  */
-// void map_single_remote_memory_chunk(struct rdma_session_context *rdma_session)
-// {
-// 	int i = 0;
-// 	int select_chunk = rdma_session->recv_buf->size_gb;
-// 	struct IS_session *IS_session = rdma_session->IS_sess;
-
-// 	for (i = 0; i < MAX_MR_SIZE_GB; i++) {
-// 		if (rdma_session->recv_buf->rkey[i]) { //from server, this chunk is allocated and given to you
-// 			pr_info("Received rkey %x addr %llx from peer\n", ntohl(rdma_session->recv_buf->rkey[i]), (unsigned long long)ntohll(rdma_session->recv_buf->buf[i]));	
-// 			rdma_session->remote_chunk.chunk_list[i]->remote_rkey = ntohl(rdma_session->recv_buf->rkey[i]);
-// 			rdma_session->remote_chunk.chunk_list[i]->remote_addr = ntohll(rdma_session->recv_buf->buf[i]);
-// 			rdma_session->remote_chunk.chunk_list[i]->bitmap_g = (int *)kzalloc(sizeof(int) * BITMAP_INT_SIZE, GFP_KERNEL);
-// 			IS_bitmap_init(rdma_session->remote_chunk.chunk_list[i]->bitmap_g);
-// 			IS_session->free_chunk_index -= 1;
-// 			IS_session->chunk_map_cb_chunk[select_chunk] = i;
-// 			rdma_session->remote_chunk.chunk_map[i] = select_chunk;
-
-// 			rdma_session->remote_chunk.chunk_size_g += 1;
-// 			rdma_session->remote_chunk.c_state = C_READY;
-// 			atomic_set(rdma_session->remote_chunk.remote_mapped + i, CHUNK_MAPPED);
-// 			atomic_set(IS_session->cb_index_map + (select_chunk), rdma_session->cb_index);
-// 			break;
-// 		}
-// 	}
-// }
-
-
-
 static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, int num_chunk){
 	int ret = 0;
 	// Prepare the receive WR
@@ -769,26 +741,11 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 	if(num_chunk == 0 || rdma_session == NULL)
 		goto err;
 
-
-
 	ret = ib_post_recv(rdma_session->qp, &rdma_session->rq_wr, &bad_wr);
 	if(ret) {
 		printk(KERN_ERR "%s, Post 2-sided message to receive data failed.\n", __func__);
 		goto err;
 	}
-
-
-	//
-	// Can we pend 2 notify_cq ??
-	// Or we have to send the notify_cq after the previous one is finished. 
-	//
-	//notify the CQ for receive WR
-	// ret = ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);   
-	// if (ret) {
-	// 	printk(KERN_ERR "%s, ib_create_cq failed\n", __func__);
-	// 	goto err;
-	// }
-
 
 	// Post the send WR
 	ret = send_messaget_to_remote(rdma_session, num_chunk == 1 ? BIND_SINGLE : BIND, num_chunk * CHUNK_SIZE_GB );
@@ -797,14 +754,6 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 		goto err;
 	}
 
-	//
-	// notify the CQ for send WR
-	//
-	// ret = ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);   
-	// if (ret) {
-	// 	printk(KERN_ERR "%s, ib_create_cq failed\n", __func__);
-	// 	goto err;
-	// }
 
 	return ret;
 
@@ -815,8 +764,26 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 
 
 
+
+/**
+ * Get a chunk mapping 2-sided RDMA message.
+ * 
+ * The information is stored in the recv WR associated DMA buffer.
+ * Record the address of the mapped chunk:
+ * 		remote_rkey : Used by the client, read/write data here.
+ * 		remote_addr : The actual virtual address of the mapped chunk
+ * 
+ * 
+ */
+
+
+
+
+
+
+
 //
-// ###########  End of handle  two-sided RDMA message section ################
+// ###########  End of handling two-sided RDMA message section ################
 //
 
 
@@ -828,9 +795,19 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 // ###########  Start of fields intialization ################
 //
 
+
+
+
+
 /**
  * Invoke this information after getting the free size of remote memory pool.
  * Initialize the chunk_list based on the chunk size and remote free memory size.
+ * 
+ *  
+ * More Explanation:
+ * 	Record the address of the mapped chunk:
+ * 		remote_rkey : Used by the client, read/write data here.
+ * 		remote_addr : The actual virtual address of the mapped chunk ?
  * 
  */
 static int init_remote_chunk_list(struct rdma_session_context *rdma_session ){
@@ -873,7 +850,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 
 	int ret;
 	struct rdma_session_context *rdma_session;
-	char ip[] = "10.0.0.2";
+	char 	ip[] = "10.0.0.2";
 	struct ib_recv_wr *bad_wr;
 
  	//1) init rdma_session_context
@@ -905,11 +882,6 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	}
 	rdma_session->addr_type = AF_INET;  //ipv4
 
-	// Debug
-//	#ifdef DEBUG_RDMA_CLIENT
-//	printk("kernel_cb->port(network big endian): %d , kernel_cb->addr : %s \n",rdma_session->port, rdma_session->addr);
-//	#endif
-
 
   	// Initialize the queue.
    	init_waitqueue_head(&rdma_session->sem);
@@ -936,7 +908,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	// Build the rdma queues.
   	ret = octopus_create_rdma_queues(rdma_session, rdma_session->cm_id);
   	if(ret){
-		  printk(KERN_ERR "%s, Create rdma queues failed. \n", __func__);
+		printk(KERN_ERR "%s, Create rdma queues failed. \n", __func__);
   	}
 
 	// 4) Register some message passing used DMA buffer.
@@ -997,6 +969,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	//struct ib_recv_wr *bad_wr;
 	//ret = ib_post_recv(rdma_session->qp, &rdma_session->rq_wr, &bad_wr); 
 
+
 	//7) Post a message to Remote memory server.
 	//wait_event_interruptible(rdma_session->sem, rdma_session->state == SEND_MESSAGE);
 	//printk("Receive message down, wake up to send message.\n");
@@ -1019,6 +992,12 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	return ret;
 
 err:
+	//free resource
+	
+	// Free the rdma_session at last. 
+	if(rdma_session != NULL)
+		kfree(rdma_session);
+
 	printk(KERN_ERR "ERROR in %s \n", __func__);
 	return ret;
 }
@@ -1066,28 +1045,64 @@ static void octopus_free_buffers(struct rdma_session_context *rdma_session) {
 }
 
 
-static void octopus_free_qp(struct rdma_session_context *rdma_session)
+/**
+ * Free InfiniBand related structures.
+ * 
+ * rdma_cm_id : the main structure to maintain the IB.
+ * 		
+ * 
+ * 
+ */
+static void octopus_free_rdma_structure(struct rdma_session_context *rdma_session)
 {
 
 	if (rdma_session == NULL)
 		return;
 
+	if(rdma_session->cm_id != NULL){
+		rdma_destroy_id(rdma_session->cm_id);
+
+		#ifdef DEBUG_RDMA_CLIENT
+		printk("%s, free rdma_cm_id done. \n",__func__);
+		#endif
+	}
+
 	if(rdma_session->qp != NULL){
 		ib_destroy_qp(rdma_session->qp);
 		//rdma_destroy_qp(rdma_session->cm_id);
+
+		#ifdef DEBUG_RDMA_CLIENT
+		printk("%s, free ib_qp  done. \n",__func__);
+		#endif
 	}
+
+	// 
+	// Both send_cq/recb_cq should be freed in ib_destroy_qp() ?
+	//
 	if(rdma_session->cq != NULL){
 		ib_destroy_cq(rdma_session->cq);
+
+		#ifdef DEBUG_RDMA_CLIENT
+		printk("%s, free ib_cq  done. \n",__func__);
+		#endif
 	}
+
 	// Before invoke this function, free all the resource binded to pd.
 	if(rdma_session->pd != NULL){
 		ib_dealloc_pd(rdma_session->pd); 
+
+		#ifdef DEBUG_RDMA_CLIENT
+		printk("%s, free ib_pd  done. \n",__func__);
+		#endif
 	}
 
 }
 
 
-
+/**
+ * The main entry of resource free.
+ * 
+ */
 static int octopus_disconenct_and_collect_resource(struct rdma_session_context *rdma_session){
 
 	int ret;
@@ -1110,7 +1125,7 @@ static int octopus_disconenct_and_collect_resource(struct rdma_session_context *
 
 	// Free resouces
 	octopus_free_buffers(rdma_session);
-	octopus_free_qp(rdma_session);
+	octopus_free_rdma_structure(rdma_session);
 	kfree(rdma_session);  // Free the RDMA context.
 	
 	#ifdef DEBUG_RDMA_CLIENT
