@@ -33,7 +33,10 @@
 #ifdef USER_MAX_CLIENT
   #define MAX_CLIENT	USER_MAX_CLIENT
 #else
-  #define MAX_CLIENT	32
+  // #define MAX_CLIENT	32
+
+  // debug
+  #define MAX_CLIENT	1
 #endif
 
 #define EXTRA_CHUNK_NUM 2
@@ -43,13 +46,13 @@
   #define MAX_FREE_MEM_GB USER_MAX_REMOTE_MEMORY //for local memory management
   #define MAX_MR_SIZE_GB MAX_FREE_MEM_GB //for msg passing
 #else
-  #define MAX_FREE_MEM_GB 32 //for local memory management
-  #define MAX_MR_SIZE_GB 32 //for msg passing
+  #define MAX_FREE_MEM_GB 32    //for local memory management
+  #define MAX_MR_SIZE_GB 32     //for msg passing
 #endif
 
 
-#define ONE_MB 1048576
-#define ONE_GB 1073741824
+#define ONE_MB 1048576      // 1024 x 2014 bytes
+#define ONE_GB 1073741824   // 1024 x 1024 x 1024 bytes
 
 #ifdef USER_REMOTE_MEMORY_EVICT
   #define FREE_MEM_EVICT_THRESHOLD USER_REMOTE_MEMORY_EVICT //in GB
@@ -80,6 +83,11 @@
 #else
   #define CURR_FREE_MEM_WEIGHT 0.7
 #endif
+
+
+// Enable the debug information.
+#define DEBUG_RDMA_CLIENT 1
+
 
 #define ntohll(x) (((uint64_t)(ntohl((int)((x << 32) >> 32))) << 32) | \
         (unsigned int)ntohl(((int)(x >> 32))))
@@ -136,8 +144,8 @@ struct atomic_t{
 struct connection {
 
   struct rdma_session *sess;
-  int conn_index; //conn index in sess->conns
-  int sess_chunk_map[MAX_MR_SIZE_GB];
+  int conn_index;                         //conn index in sess->conns
+  int sess_chunk_map[MAX_MR_SIZE_GB];     // [?] How to use this array ? -1 0r 1 ?
   int mapped_chunk_size;
 
   sem_t evict_sem;
@@ -148,9 +156,9 @@ struct connection {
 
   int connected;
 
-  struct ibv_mr *recv_mr;
+  struct ibv_mr *recv_mr;       // Used for RDMA message passing.
   struct ibv_mr *send_mr;
-  struct ibv_mr *rdma_remote_mr;
+  struct ibv_mr *rdma_remote_mr;  // [??]
 
   struct ibv_mr peer_mr;
 
@@ -189,13 +197,13 @@ struct connection {
 #define CHUNK_MALLOCED 1
 #define CHUNK_EMPTY	0
 struct rdma_remote_mem{
-  char* region_list[MAX_FREE_MEM_GB];       // [?] Start address of the chunk. 
-  struct ibv_mr* mr_list[MAX_FREE_MEM_GB];  // Registered RDMA buffer. 
+  char*           region_list[MAX_FREE_MEM_GB];       // [?] Start address of the chunk. 
+  struct ibv_mr*  mr_list[MAX_FREE_MEM_GB];           // The corresponding Memory Region of region_list. 
   int size_gb; 
   int mapped_size;
-  int conn_map[MAX_FREE_MEM_GB]; //chunk is used by which connection, or -1
-  int malloc_map[MAX_FREE_MEM_GB];
-  int conn_chunk_map[MAX_FREE_MEM_GB]; //session_chunk 
+  int conn_map[MAX_FREE_MEM_GB];        // chunk is used by which connection, or -1
+  int malloc_map[MAX_FREE_MEM_GB];      // Record if this chunk malloced or not.
+  int conn_chunk_map[MAX_FREE_MEM_GB];  // session_chunk 
 };
 
 enum conn_state{
@@ -209,13 +217,15 @@ struct chunk_activity{
   uint64_t activity;
   int chunk_index;
 };
-struct rdma_session {
-	struct connection* conns[MAX_CLIENT]; // need to init NULL
-  enum conn_state conns_state[MAX_CLIENT];
-	int conn_num;	
 
-	struct rdma_remote_mem rdma_remote;		
-  struct chunk_activity *evict_list;
+
+struct rdma_session {
+	struct  connection*   conns[MAX_CLIENT];        // need to init NULL. One "struct connection" per client.
+  enum    conn_state    conns_state[MAX_CLIENT];
+	int                   conn_num;	
+
+	struct rdma_remote_mem  rdma_remote;		// Manage all the remote chunk within this session
+  struct chunk_activity   *evict_list;
 
 };
 

@@ -10,13 +10,13 @@ extern int running;
 
 static void build_context(struct ibv_context *verbs);
 static void build_qp_attr(struct ibv_qp_init_attr *qp_attr);
-static void on_completion(struct ibv_wc *);
+static void handle_cqe(struct ibv_wc *);
 static void * poll_cq(void *);
 static void post_receives(struct connection *conn);
 static void register_memory(struct connection *conn);
 static void send_message(struct connection *conn);
 
-struct rdma_session session;
+struct rdma_session session;    // A global variable, one per Remote Memory Server.
 
 char free_mem_cmd[39] = "vmstat -s | awk 'FNR == 5 {printf $1}'";
 static struct context *s_ctx = NULL;
@@ -79,12 +79,12 @@ long get_free_mem(void)
 /**
  * Build a daemon thread to keep polling WR from the QP.
  * 
- * 1) build a daemon thread to handle the RDMA data event. id->verbs stores the RDMA connection information.
+ * 1) build a daemon thread to handle the RDMA data event : poll_cq(void *ctx)
  * 2) Accept the connection request from client.  
- *        [?] Send back what's RDMA package ??
+ * 3) Infor client the free memory size of this server.
  * 
  *  More Explanation
- *    rdma_cm_id->context : self defined driver data ?
+ *    rdma_cm_id->context : self defined driver data
  * 
  */
 void build_connection(struct rdma_cm_id *id)
@@ -94,10 +94,10 @@ void build_connection(struct rdma_cm_id *id)
   struct ibv_qp_init_attr qp_attr;
 
   // 1) build a listening daemon thread 
-  build_context(id->verbs);  // 
+  build_context(id->verbs);  // create a daemon thread, poll_cq
   build_qp_attr(&qp_attr);    
 
-  TEST_NZ(rdma_create_qp(id, s_ctx->pd, &qp_attr));   // Build the QP
+  TEST_NZ(rdma_create_qp(id, s_ctx->pd, &qp_attr));   // Build the QP, after build the QP, RDMA is connected ?
 
   // 2) Build the acknowledge RDMA packages.
   id->context = conn = (struct connection *)malloc(sizeof(struct connection));
@@ -121,28 +121,30 @@ void build_connection(struct rdma_cm_id *id)
     conn->sess_chunk_map[i] = -1;
   }
   conn->mapped_chunk_size = 0;
+
   //add to session 
   for (i=0; i<MAX_CLIENT; i++){
     if (session.conns_state[i] == CONN_IDLE){
       session.conns[i] = conn;
-      session.conns_state[i] = CONN_CONNECTED;
+      session.conns_state[i] = CONN_CONNECTED;    // Mark this session connected ? before do the RDMA connection ?
       conn->conn_index = i;
       break;
     } 
   }
   session.conn_num += 1;
 
-  register_memory(conn);
-  post_receives(conn);
+  register_memory(conn);  // Register RDMA message memory regions, recv/send.
+
+  // Send a waiting receive WR.
+  // Post the receive wr before ACCEPT the RDMA connection.
+  post_receives(conn);    
 }
 
 
 
 /**
  * Build a daemon thread to receive RDMA wr,
- * 
- * For RDMA post send/recieve mode, the memory server needs to main a daemon thread to do the polling work ?
- * For RDMA read/write mode, no need to maintain such a daemon thread ?
+ *    Create a daemon thread to poll_cq the two-sided RDMA message bussily : poll_cq(void *ctx)
  * 
  * [?] Run the poll thread before  create the QP ?
  * 
@@ -165,7 +167,7 @@ void build_context(struct ibv_context *verbs)
   TEST_Z(s_ctx->cq = ibv_create_cq(s_ctx->ctx, 10, NULL, s_ctx->comp_channel, 0)); /* cqe=10 is arbitrary */
   TEST_NZ(ibv_req_notify_cq(s_ctx->cq, 0));
 
-  TEST_NZ(pthread_create(&s_ctx->cq_poller_thread, NULL, poll_cq, NULL));
+  TEST_NZ(pthread_create(&s_ctx->cq_poller_thread, NULL, poll_cq, NULL));  // [?] Poll CQ manually ??  Not in a notify way ?
 }
 
 void build_params(struct rdma_conn_param *params)
@@ -545,16 +547,26 @@ void recv_done(struct connection *conn)
   post_receives(conn); 
 }
 
-// Aug 21 handle queries from client
-void on_completion(struct ibv_wc *wc)
+
+
+/**
+ * Get a WC fro mthe CQ, handle it.
+ * 
+ * 
+ */
+void handle_cqe(struct ibv_wc *wc)
 {
+
+  // [?] wc->wr_is is the rdma context, struct connection ??
+  // connection->recv_msg is the binded DMA buffer.
+  //
   struct connection *conn = (struct connection *)(uintptr_t)wc->wr_id;
 
   if (wc->status != IBV_WC_SUCCESS)
-    die("on_completion: status is not IBV_WC_SUCCESS.");
+    die("handle_cqe: status is not IBV_WC_SUCCESS.");
 
   if (wc->opcode == IBV_WC_RECV){ //Recv
-    switch (conn->recv_msg->type){
+    switch (conn->recv_msg->type){    // Check the DMA buffer of recevei WR.
       case QUERY:
         printf("%s, QUERY \n", __func__);
         atomic_set(&conn->cq_qp_state, CQ_QP_BUSY);
@@ -572,14 +584,12 @@ void on_completion(struct ibv_wc *wc)
         break;
       case BIND_SINGLE:
 
-        // [?] Find a free chunk and register it as DMA buffer ?
-        // 
         printf("%s, BIND_SINGLE \n", __func__);
         atomic_set(&conn->cq_qp_state, CQ_QP_BUSY);
         conn->server_state = S_BIND;
         //allocate n chunks, and send to client
-        send_single_mr(conn, conn->recv_msg->size_gb);
-        session.conns_state[conn->conn_index] = CONN_MAPPED;
+        send_single_mr(conn, conn->recv_msg->size_gb); // [?]  2nd parameter should be, int client_chunk_index ??
+        session.conns_state[conn->conn_index] = CONN_MAPPED;  // [?] The connection->conn_index is the index of the chunk to be mapped ??
         post_receives(conn);
         break;
       case ACTIVITY:
@@ -607,7 +617,13 @@ void on_connect(void *context)
 }
 
 
-
+/**
+ * Busyly poll the CQ.
+ *  Handle the two-sided RDMA messages
+ * 
+ * [!!] This is a daemon thread [!!]
+ * 
+ */
 void * poll_cq(void *ctx)
 {
   struct ibv_cq *cq;
@@ -618,15 +634,16 @@ void * poll_cq(void *ctx)
     ibv_ack_cq_events(cq, 1);
     TEST_NZ(ibv_req_notify_cq(cq, 0));
 
-    while (ibv_poll_cq(cq, 1, &wc))
-      on_completion(&wc);
+    while (ibv_poll_cq(cq, 1, &wc))   // If here busily polls the CQ, no need to use the ibv_req_notify_cq ?
+      handle_cqe(&wc);
   }
 
   return NULL;
 }
 
 /**
- * [?] Acknowledge the sender that we accept  the RDMA connection ?
+ * Post a receive WR to wait for RDMA message.
+ *    This is a empty receive WR, waiting for the data sent from client.
  * 
  */
 void post_receives(struct connection *conn)
@@ -648,8 +665,13 @@ void post_receives(struct connection *conn)
 
 
 /**
- * Register RDMA message buffer.
- *  conn->send/recv_msg 
+ * Register memory regions, used for RDMA message WRs .
+ *  
+ *  a. DMA buffer, user level.
+ *      connection->send_msg/recv_msg 
+ * 
+ *  b. memory region, walk through the page table && pin the physical memory
+ *      connection->send_mr/recv_mr
  * 
  */
 void register_memory(struct connection *conn)
@@ -671,6 +693,10 @@ void register_memory(struct connection *conn)
 
  }
 
+/**
+ * Use the reserved DMA  send buffer to post a two-sided RDMA message to client.
+ * 
+ */
 void send_message(struct connection *conn)
 {
   struct ibv_send_wr wr, *bad_wr = NULL;
@@ -705,18 +731,27 @@ void send_single_mr(void *context, int client_chunk_index)
   int i = 0;
 
   conn->send_msg->size_gb = client_chunk_index;
+
+  // [??] Initialize all the chunk[i]->rkey to be 0 ??
   for (i=0; i<MAX_FREE_MEM_GB;i++){
     conn->send_msg->rkey[i] = 0;
   }
 
+  // For a single chunk, traverse chunk list to find an Already allocated But not mapped one.
+  // Reuse this allocated chunk, no need to allocate a new one.
   for (i=0; i<MAX_FREE_MEM_GB; i++) {
+
+    // For a allocated but not mapped chunk
     if (session.rdma_remote.malloc_map[i] == CHUNK_MALLOCED && session.rdma_remote.conn_map[i] == -1) {// allocated && unmapped 
       conn->sess_chunk_map[i] = i;
-      session.rdma_remote.conn_map[i] = conn->conn_index;
-      TEST_Z(session.rdma_remote.mr_list[i] = ibv_reg_mr(s_ctx->pd, session.rdma_remote.region_list[i], ONE_GB, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ)); //Write permission can't cover read permission, different traditional understanding
+      session.rdma_remote.conn_map[i] = conn->conn_index;   // connection->conn_index is the client index. 
+      TEST_Z(session.rdma_remote.mr_list[i] = ibv_reg_mr(s_ctx->pd, session.rdma_remote.region_list[i], ONE_GB, 
+                                                                                              IBV_ACCESS_LOCAL_WRITE | 
+                                                                                              IBV_ACCESS_REMOTE_WRITE | 
+                                                                                              IBV_ACCESS_REMOTE_READ)); 
       conn->send_msg->buf[i] = htonll((uint64_t)session.rdma_remote.mr_list[i]->addr);
       conn->send_msg->rkey[i] = htonl((uint64_t)session.rdma_remote.mr_list[i]->rkey);
-      printf("RDMA addr %llx  rkey %x\n", (unsigned long long)conn->send_msg->buf[i], conn->send_msg->rkey[i]);
+      printf("RDMA addr 0x%llx  rkey 0x%x\n", (unsigned long long)conn->send_msg->buf[i], conn->send_msg->rkey[i]);
       break;
     }
   }
@@ -727,6 +762,8 @@ void send_single_mr(void *context, int client_chunk_index)
 
   send_message(conn);
 }
+
+
 void send_mr(void *context, int size)
 {
   struct connection *conn = (struct connection *)context;
@@ -758,6 +795,10 @@ void send_mr(void *context, int size)
   send_message(conn);
 }
 
+/**
+ * Post a two-sided RDMA message to client to inform the free memory size in server.
+ * 
+ */
 void send_free_mem_size(void *context)
 {
   struct connection *conn = (struct connection *)context;
