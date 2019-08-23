@@ -85,6 +85,9 @@
 #endif
 
 
+
+#define CHUNK_SIZE_GB					1   // Habe to be 1GB at current ! or will cause inconsistence problems. 
+
 // Enable the debug information.
 #define DEBUG_RDMA_CLIENT 1
 
@@ -102,24 +105,51 @@ enum mode {
  * The self defined structure of the  RDMA package.  
  * 
  */
+// struct message {
+//   uint64_t buf[MAX_MR_SIZE_GB];
+//   uint32_t rkey[MAX_MR_SIZE_GB];   // Used by remote(client)
+//   int size_gb;
+//   //uint64_t size;
+//   enum {
+//     DONE = 1, //C   // start from 1
+//     MAP_CHUNKS, //S
+//     INFO_SINGLE,
+//     FREE_SIZE, //S
+//     EVICT,          // 5,
+//     ACTIVITY,
+//     STOP, //S
+//     BIND, //C
+//     BIND_SINGLE,
+//     QUERY //C       // 10,
+//   } type;
+// };
+
+//
+// Use  the new names.
+//
 struct message {
-  uint64_t buf[MAX_MR_SIZE_GB];
-  uint32_t rkey[MAX_MR_SIZE_GB];   // Used by remote(client)
-  int size_gb;
-  //uint64_t size;
-  enum {
-    DONE = 1, //C
-    INFO, //S
-    INFO_SINGLE,
-    FREE_SIZE, //S
-    EVICT,
-    ACTIVITY,
-    STOP, //S
-    BIND, //C
-    BIND_SINGLE,
-    QUERY //C
-  } type;
+  	
+	// Information of the chunk to be mapped to remote memory server.
+	uint64_t buf[MAX_MR_SIZE_GB];		  // Remote addr, usd by clinet for RDMA read/write.
+  uint32_t rkey[MAX_MR_SIZE_GB];   	// remote key
+  int size_gb;						// Size of the chunk ?
+
+	enum {
+		DONE = 1,				      // Start from 1
+		SEND_CHUNKS,				  // send the remote_addr/rkey of multiple Chunks
+		SEND_SINGLE_CHUNK,		// send the remote_addr/rkey of a single Chunk
+		FREE_SIZE,
+		EVICT,        			  // 5
+		ACTIVITY,				
+		
+		STOP,					        //7, upper SIGNALs are used by server, below SIGNALs are used by client.
+
+		REQUEST_CHUNKS,
+		REQUEST_SINGLE_CHUNK,	// Send a request to ask for a single chunk.
+		QUERY         			  // 10
+	} type;
 };
+
 
 
 /**
@@ -236,8 +266,8 @@ void build_params(struct rdma_conn_param *params);
 void destroy_connection(void *context);
 void * get_serving_mem_region(void *context);
 void on_connect(void *context);
-void send_single_mr(void *context, int n);
-void send_mr(void *context, int n);
+void send_single_chunk_to_client(void *context, int client_chunk_index);
+void send_chunks_to_client(void *context, int size_gb);
 void send_stop(void *context, int n);
 void send_evict(void *context, int n);
 void send_free_mem_size(void *context);
