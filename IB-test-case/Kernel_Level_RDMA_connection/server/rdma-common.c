@@ -234,9 +234,10 @@ void * get_serving_mem_region(void *context)
 
 
 /**
+ * Entry of chunk allocations. 
  * 
- * [x] Allocate the chunk here.
- * 
+ * More Explanation
+ *  One GB per chunk as default.
  */
 void rdma_session_init(struct rdma_session *sess){
   int free_mem_g;
@@ -262,10 +263,13 @@ void rdma_session_init(struct rdma_session *sess){
   }
 
   for (i=0; i < free_mem_g; i++){
-    posix_memalign((void **)&(sess->rdma_remote.region_list[i]), page_size, ONE_GB);   // Allocate Chunk by posix_memalign 
+    //posix_memalign((void **)&(sess->rdma_remote.region_list[i]), page_size, ONE_GB);  // Allocate Chunk by posix_memalign 
+    posix_memalign((void **)&(sess->rdma_remote.region_list[i]), ONE_GB, ONE_GB);       // One GB allignment. 
+
     memset(sess->rdma_remote.region_list[i], 0x00, ONE_GB);
     sess->rdma_remote.malloc_map[i] = CHUNK_MALLOCED;
   }
+  
   sess->rdma_remote.size_gb = free_mem_g;
   sess->rdma_remote.mapped_size = 0;
 
@@ -494,7 +498,13 @@ void* free_mem(void *data)
         j = 0;
         for (i = 0; i < MAX_FREE_MEM_GB; i++){
           if (session.rdma_remote.malloc_map[i] == CHUNK_EMPTY){
-            posix_memalign((void **)&(session.rdma_remote.region_list[i]), page_size, ONE_GB);
+            //posix_memalign((void **)&(session.rdma_remote.region_list[i]), page_size, ONE_GB);  // page_size alignment.
+
+            posix_memalign((void **)&(session.rdma_remote.region_list[i]), ONE_GB, ONE_GB);  // page_size alignment.
+            #ifdef DEBUG_RDMA_CLIENT
+            printf("Allocate chunk[%d], addr : 0x%llx, size : 0x%x \n", i, (unsigned long long)session.rdma_remote.region_list[i], ONE_GB);
+            #endif
+
             memset(session.rdma_remote.region_list[i], 0x00, ONE_GB);
             session.rdma_remote.malloc_map[i] = CHUNK_MALLOCED;
             j += 1;
@@ -573,22 +583,22 @@ void handle_cqe(struct ibv_wc *wc)
         send_free_mem_size(conn);
         post_receives(conn);
         break;
-      case BIND:  //client bind with this server
+      case REQUEST_CHUNKS:          //client requests for multiple memory chunks from current server.
         printf("%s, BIND \n", __func__);
         atomic_set(&conn->cq_qp_state, CQ_QP_BUSY);
         conn->server_state = S_BIND;
         //allocate n chunks, and send to client
-        send_mr(conn, conn->recv_msg->size_gb);
+        send_chunks_to_client(conn, conn->recv_msg->size_gb);
         session.conns_state[conn->conn_index] = CONN_MAPPED;
         post_receives(conn);
         break;
-      case BIND_SINGLE:
+      case REQUEST_SINGLE_CHUNK:    // client requests for single memory chunk from this server. Usually used for debuging.
 
         printf("%s, BIND_SINGLE \n", __func__);
         atomic_set(&conn->cq_qp_state, CQ_QP_BUSY);
         conn->server_state = S_BIND;
         //allocate n chunks, and send to client
-        send_single_mr(conn, conn->recv_msg->size_gb); // [?]  2nd parameter should be, int client_chunk_index ??
+        send_single_chunk_to_client(conn, conn->recv_msg->size_gb); // [?]  2nd parameter should be, int client_chunk_index ??
         session.conns_state[conn->conn_index] = CONN_MAPPED;  // [?] The connection->conn_index is the index of the chunk to be mapped ??
         post_receives(conn);
         break;
@@ -725,7 +735,7 @@ void send_message(struct connection *conn)
  * The memory chunk is already allocated.
  * Register these chunks as DMA buffer by invoking ibv_reg_mr here. 
  */
-void send_single_mr(void *context, int client_chunk_index)
+void send_single_chunk_to_client(void *context, int client_chunk_index)
 {
   struct connection *conn = (struct connection *)context;
   int i = 0;
@@ -749,48 +759,60 @@ void send_single_mr(void *context, int client_chunk_index)
                                                                                               IBV_ACCESS_LOCAL_WRITE | 
                                                                                               IBV_ACCESS_REMOTE_WRITE | 
                                                                                               IBV_ACCESS_REMOTE_READ)); 
-      conn->send_msg->buf[i] = htonll((uint64_t)session.rdma_remote.mr_list[i]->addr);
+      conn->send_msg->buf[i] = htonll((uint64_t)session.rdma_remote.mr_list[i]->addr);    // is this necessary ??
       conn->send_msg->rkey[i] = htonl((uint64_t)session.rdma_remote.mr_list[i]->rkey);
-      printf("RDMA addr 0x%llx  rkey 0x%x\n", (unsigned long long)conn->send_msg->buf[i], conn->send_msg->rkey[i]);
+      printf("RDMA addr 0x%llx  rkey 0x%x\n", (unsigned long long)session.rdma_remote.mr_list[i]->addr, session.rdma_remote.mr_list[i]->rkey);
       break;
     }
   }
 
   session.rdma_remote.mapped_size += 1;
   conn->mapped_chunk_size += 1;
-  conn->send_msg->type = INFO_SINGLE;
+  conn->send_msg->type = SEND_SINGLE_CHUNK;
 
   send_message(conn);
 }
 
 
-void send_mr(void *context, int size)
+/**
+ * Send registered memory chunk to client.
+ * 
+ */
+void send_chunks_to_client(void *context, int size_gb)
 {
   struct connection *conn = (struct connection *)context;
   int i = 0;
-  int j = 0;
+  int sent_chunk_count = size_gb/CHUNK_SIZE_GB;  
 
-  conn->send_msg->size_gb = size;
+  conn->send_msg->size_gb = size_gb;
+
+
+  // Reset the rkey[] to 0, to let client recognize the sent chunks by checking rkey[].
   for (i=0; i<MAX_FREE_MEM_GB;i++){
     conn->send_msg->rkey[i] = 0;
   }
+
+  // For multiple chunks, no need to send contiguous chunks ?
   for (i=0; i<MAX_FREE_MEM_GB; i++) {
     if (session.rdma_remote.malloc_map[i] == CHUNK_MALLOCED && session.rdma_remote.conn_map[i] == -1) {// allocated && unmapped 
       conn->sess_chunk_map[i] = i;
       session.rdma_remote.conn_map[i] = conn->conn_index;
-      TEST_Z(session.rdma_remote.mr_list[i] = ibv_reg_mr(s_ctx->pd, session.rdma_remote.region_list[i], ONE_GB, IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_READ)); //Write permission can't cover read permission, different traditional understanding
-      conn->send_msg->buf[i] = htonll((uint64_t)session.rdma_remote.mr_list[i]->addr);
+      TEST_Z(session.rdma_remote.mr_list[i] = ibv_reg_mr(s_ctx->pd, session.rdma_remote.region_list[i], ONE_GB, IBV_ACCESS_LOCAL_WRITE | 
+                                                                                                                IBV_ACCESS_REMOTE_WRITE | 
+                                                                                                                IBV_ACCESS_REMOTE_READ));
+      conn->send_msg->buf[i] = htonll((uint64_t)session.rdma_remote.mr_list[i]->addr);    // Is this necessary ??  cient need reverse this procedure.
       conn->send_msg->rkey[i] = htonl((uint64_t)session.rdma_remote.mr_list[i]->rkey);
-      printf("RDMA addr %llx  rkey %x\n", (unsigned long long)conn->send_msg->buf[i], conn->send_msg->rkey[i]);
-      j += 1;
-      if (j == size){
+      printf("Host format, RDMA addr %llx  rkey %x\n", (unsigned long long)session.rdma_remote.mr_list[i]->addr, session.rdma_remote.mr_list[i]->rkey);
+
+      sent_chunk_count -= 1;
+      if (sent_chunk_count == 0){
         break;
       }
     }
   } 
-  session.rdma_remote.mapped_size += size;
-  conn->mapped_chunk_size += size;
-  conn->send_msg->type = INFO;
+  session.rdma_remote.mapped_size += size_gb;
+  conn->mapped_chunk_size += size_gb;
+  conn->send_msg->type = SEND_CHUNKS;
 
   send_message(conn);
 }
