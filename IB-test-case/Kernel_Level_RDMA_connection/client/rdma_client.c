@@ -215,6 +215,8 @@ static int octopus_create_rdma_queues(struct rdma_session_context *rdma_session,
 	// 		cq_context = qp_context = rdma_session_context.
 	//
 	// [?] receive cq and send cq are the same one ??
+	// 		ib_qp->send_cq, ib_qp->recv_cq seperately. 
+	//		How about we create these 2 queues ?  = Seems the nvme_over_fabrics also use the single cq.
 	// 
 	rdma_session->cq = ib_create_cq(cm_id->device, octopus_cq_event_handler, NULL, rdma_session, &init_attr);
 
@@ -576,16 +578,18 @@ err:
 
 /**
  * Send a RDMA message to remote server.
+ * 
+ * 
  */
-static int send_messaget_to_remote(struct rdma_session_context *rdma_session, int messge_type  , int size_gb)
+static int send_message_to_remote(struct rdma_session_context *rdma_session, int messge_type  , int size_gb)
 {
 	int ret = 0;
 	struct ib_send_wr * bad_wr;
 	rdma_session->send_buf->type = messge_type;
-	rdma_session->send_buf->size_gb = size_gb; 
+	rdma_session->send_buf->size_gb = size_gb; 		// chunk_num = size_gb/chunk_size
 
 	#ifdef DEBUG_RDMA_CLIENT
-	printk("Send a Message to Remote memory server. cb->send_buf->type : %d, %s \n", messge_type, rdma_session_context_state_print(messge_type) );
+	printk("Send a Message to Remote memory server. cb->send_buf->type : %d, %s \n", messge_type, rdma_message_print(messge_type) );
 	#endif
 
 	ret = ib_post_send(rdma_session->qp, &rdma_session->sq_wr, &bad_wr);
@@ -627,10 +631,10 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 	}
 	#endif
 
-	// debug
-	//printk(KERN_ERR "client_recv, rdma_session->state : %d  \n", rdma_session->state );
-	//printk(KERN_ERR "client_recv, rdma_session->recv_buf->size_gb : %d, rdma_session->recv_buf->type : %d \n", rdma_session->recv_buf->size_gb, rdma_session->recv_buf->type );
 
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, Recieved RDMA message: %s \n",__func__, rdma_message_print(rdma_session->recv_buf->type));
+	#endif
 
 	switch(rdma_session->recv_buf->type){
 		case FREE_SIZE:
@@ -638,8 +642,7 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 			// Step 1), get the Free Size. 
 			//
 			#ifdef DEBUG_RDMA_CLIENT
-			printk( "%s, Received RDMA message, type: FREE_SIZE, avaible size : %d GB \n ", __func__, 
-																		rdma_session->recv_buf->size_gb  );
+			printk( "%s, avaible size : %d GB \n ", __func__,	rdma_session->recv_buf->size_gb  );
 			#endif
 
 			rdma_session->remote_chunk_list.remote_free_size_gb = rdma_session->recv_buf->size_gb;
@@ -653,64 +656,53 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 			// Step 1) finished.
 			wake_up_interruptible(&rdma_session->sem);
 
-			#ifdef DEBUG_RDMA_CLIENT
-			printk( "%s, Initialize remote chunks down. \n ", __func__ );
-			#endif
-
 			break;
-		case INFO:
-		//	cb->IS_sess->cb_state_list[cb->cb_index] = CB_MAPPED;
-			rdma_session->state = WAIT_OPS;
-			//IS_chunk_list_init(cb);
-
-			#ifdef DEBUG_RDMA_CLIENT
-			printk("%s, Recieved RDMA message: INFO \n",__func__);
-			#endif
-
-			break;
-		case INFO_SINGLE:
+		case GOT_CHUNKS:
 		//	cb->IS_sess->cb_state_list[cb->cb_index] = CB_MAPPED;
 			//rdma_session->state = WAIT_OPS;
-			#ifdef DEBUG_RDMA_CLIENT
-			printk("%s, Recieved RDMA message: INFO_SINGLE \n",__func__);
-			#endif
+			//IS_chunk_list_init(cb);
+
+			// Got memory chunks from remote memory server, do contiguous mapping.
+
+			bind_remote_memory_chunks(rdma_session);
+
+			// debug
+			rdma_session->state = TEST_DONE;
+			wake_up_interruptible(&rdma_session->sem);  // Finish main function.
+
+			break;
+		case GOT_SINGLE_CHUNK:
+		//	cb->IS_sess->cb_state_list[cb->cb_index] = CB_MAPPED;
+			//rdma_session->state = WAIT_OPS;
+		
 
 			//debug
 			// Check the received data
-			for(i=0; i< MAX_MR_SIZE_GB; i++){
+			// All the rkey[] are reset to 0 before sending to client.
+			for(i=0; i< MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB; i++){
 				if(rdma_session->recv_buf->rkey[i]){
 					printk("%s, received remote chunk[%d] addr : 0x%llx, rkey : 0x%x \n", __func__, i,
-																		(rdma_session->recv_buf->buf[i]), 
-																		(rdma_session->recv_buf->rkey[i]));
+																		ntohll(rdma_session->recv_buf->buf[i]), 
+																		ntohl(rdma_session->recv_buf->rkey[i]));
 				}
 			}
 
+			// debug
 			rdma_session->state = TEST_DONE;
 			wake_up_interruptible(&rdma_session->sem);  // Finish main function.
 
 			//IS_single_chunk_init(cb);
 			//map_single_remote_memory_chunk(rdma_session);
 
-
-
-
 			break;
 		case EVICT:
 			rdma_session->state = RECV_EVICT;
-
-			#ifdef DEBUG_RDMA_CLIENT
-			printk("%s, Recieved RDMA message: EVICT \n",__func__);
-			#endif
 
 			//client_recv_evict(cb);
 			break;
 		case STOP:
 			rdma_session->state = RECV_STOP;	
-			
-			#ifdef DEBUG_RDMA_CLIENT
-			printk("%s, Recieved RDMA message: STOP \n",__func__);
-			#endif
-
+		
 			//client_recv_stop(cb);
 			break;
 		default:
@@ -748,7 +740,7 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 	}
 
 	// Post the send WR
-	ret = send_messaget_to_remote(rdma_session, num_chunk == 1 ? BIND_SINGLE : BIND, num_chunk * CHUNK_SIZE_GB );
+	ret = send_message_to_remote(rdma_session, num_chunk == 1 ? REQUEST_SINGLE_CHUNK : REQUEST_CHUNKS, num_chunk * CHUNK_SIZE_GB );
 	if(ret) {
 		printk(KERN_ERR "%s, Post 2-sided message to remote server failed.\n", __func__);
 		goto err;
@@ -765,23 +757,6 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 
 
 
-/**
- * Get a chunk mapping 2-sided RDMA message.
- * 
- * The information is stored in the recv WR associated DMA buffer.
- * Record the address of the mapped chunk:
- * 		remote_rkey : Used by the client, read/write data here.
- * 		remote_addr : The actual virtual address of the mapped chunk
- * 
- * 
- */
-
-
-
-
-
-
-
 //
 // ###########  End of handling two-sided RDMA message section ################
 //
@@ -791,9 +766,11 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 
 
 
+
 //
-// ###########  Start of fields intialization ################
+// ###########  Start of handling chunk management ################
 //
+
 
 
 
@@ -813,8 +790,14 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 static int init_remote_chunk_list(struct rdma_session_context *rdma_session ){
 
 	int ret;
-	int i;
-	int tmp_chunk_num = rdma_session->remote_chunk_list.remote_free_size_gb/CHUNK_SIZE_GB; // number of chunks in remote memory.
+	uint32_t i;
+	uint32_t tmp_chunk_num; 
+	
+	// 1) initialize chunk related variables
+	CHUNK_INDEX_OFSSET = GB_OFFSET + power_of_2(CHUNK_SIZE_GB);
+	tmp_chunk_num = rdma_session->remote_chunk_list.remote_free_size_gb/CHUNK_SIZE_GB; // number of chunks in remote memory.
+	rdma_session->remote_chunk_list.chunk_ptr = 0;	// Points to the first empty chunk.
+
 
 	rdma_session->remote_chunk_list.chunk_num = tmp_chunk_num;
 	rdma_session->remote_chunk_list.remote_chunk = (struct remote_mapping_chunk*)kzalloc(sizeof(struct remote_mapping_chunk) * tmp_chunk_num, GFP_KERNEL);
@@ -825,10 +808,74 @@ static int init_remote_chunk_list(struct rdma_session_context *rdma_session ){
 		rdma_session->remote_chunk_list.remote_chunk[i].remote_rkey = 0x0;
 	}
 
-
 	return ret;
-
 }
+
+
+
+
+/**
+ * Get a chunk mapping 2-sided RDMA message.
+ * Bind these chunks to the cient in order.
+ * 
+ *	1) The information of Chunks to be bound,  is stored in the recv WR associated DMA buffer.
+ * Record the address of the mapped chunk:
+ * 		remote_rkey : Used by the client, read/write data here.
+ * 		remote_addr : The actual virtual address of the mapped chunk
+ * 
+ *	2) Attach the received chunks to the rdma_session_context->remote_mapping_chunk_list->remote_mapping_chunk[]
+ */
+static void bind_remote_memory_chunks(struct rdma_session_context *rdma_session ){
+
+	int i; 
+	uint32_t *chunk_ptr;
+
+	chunk_ptr = &(rdma_session->remote_chunk_list.chunk_ptr);
+	// Traverse the receive WR to find all the got chunks.
+	for(i = 0; i < MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB; i++ ){
+		if(rdma_session->recv_buf->rkey[i]){
+			// Sent chunk, attach to current chunk_list's tail.
+			rdma_session->remote_chunk_list.remote_chunk[*chunk_ptr].remote_rkey = ntohl(rdma_session->recv_buf->rkey[i]);
+			rdma_session->remote_chunk_list.remote_chunk[*chunk_ptr].remote_addr = ntohll(rdma_session->recv_buf->buf[i]);
+			rdma_session->remote_chunk_list.remote_chunk[*chunk_ptr].chunk_state = MAPPED;
+			
+
+			#ifdef DEBUG_RDMA_CLIENT
+			printk("Got chunk[%d] : remote_addr : 0x%llx, remote_rkey: 0x%x \n", i, rdma_session->remote_chunk_list.remote_chunk[*chunk_ptr].remote_addr,
+																						rdma_session->remote_chunk_list.remote_chunk[*chunk_ptr].remote_rkey);
+			#endif
+
+			(*chunk_ptr)++;
+		}
+
+		#ifdef DEBUG_RDMA_CLIENT
+		if( *chunk_ptr >= rdma_session->remote_chunk_list.chunk_num){
+			printk("%s, Get too many chunks. \n", __func__);
+			break;
+		}
+		#endif
+
+	} // for
+}
+
+
+
+
+
+//
+// ###########  End of handling chunk management ################
+//
+
+
+
+
+
+
+
+//
+// ###########  Start of fields intialization ################
+//
+
 
 
 
@@ -979,7 +1026,10 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 
 	//debug
 	// Send a RDMA message to request for mapping a chunk ?
-	ret = octupos_requset_for_chunk(rdma_session, 1);
+	// Parameters
+	// 		rdma_session_context : driver data
+	//		number of requeted chunks
+	ret = octupos_requset_for_chunk(rdma_session, 8);
 	if(ret){
 		printk("%s, request for chunk failed.\n", __func__);
 		goto err;
@@ -995,8 +1045,8 @@ err:
 	//free resource
 	
 	// Free the rdma_session at last. 
-	if(rdma_session != NULL)
-		kfree(rdma_session);
+	// if(rdma_session != NULL)
+	// 	kfree(rdma_session);
 
 	printk(KERN_ERR "ERROR in %s \n", __func__);
 	return ret;
@@ -1018,7 +1068,13 @@ err:
 
 
 
-
+/**
+ * Free the RDMA buffers.
+ * 
+ * 	1) 2-sided DMA buffer
+ * 	2) mapped remote chunks.
+ * 
+ */
 static void octopus_free_buffers(struct rdma_session_context *rdma_session) {
 	// Free the DMA buffer for 2-sided RDMA messages
 	if(rdma_session == NULL)

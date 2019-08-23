@@ -58,10 +58,46 @@ MODULE_VERSION("1.0");
 //
 
 #define RMEM_SIZE_IN_BYTES  			(unsigned long)1024*1024*1024*8  // 8GB
-#define CHUNK_SIZE_GB					1
-#define MAX_MR_SIZE_GB 					32 
+#define CHUNK_SIZE_GB					1		// Must be a number of 2 to power N.
+#define MAX_REMOTE_MEMORY_SIZE_GB 		32 		// The max remote memory size of current client. For 1 remote memory server, this value eaquals to the remote memory size.
 #define RDMA_READ_WRITE_QUEUE_DEPTH		16		// [?] connection with the Disk dispatch queue depth ??
 
+
+
+
+
+/**
+ * ################### utility functions ####################
+ */
+
+//
+// Calculate the number's power of 2.
+uint64_t power_of_2(uint64_t  num){
+    
+    uint64_t  power = 0;
+    while( (num = (num >> 1)) !=0 ){
+        power++;
+    }
+
+    return power;
+}
+
+
+
+
+/**
+ * Bit operations 
+ * 
+ */
+static uint64_t GB_OFFSET = 30; 
+static uint64_t CHUNK_INDEX_OFSSET;	 // Used to calculate the chunk index in Client (File chunk). Initialize it before using.
+
+
+
+
+//
+// File address to Remote virtual memory address translation
+//
 
 
 
@@ -98,16 +134,19 @@ enum rdma_session_context_state {
 	ADDR_RESOLVED,
 	ROUTE_RESOLVED,
 	CONNECTED,		// 5,  updated by IS_cma_event_handler()
+
 	FREE_MEM_RECV,
 	AFTER_FREE_MEM,
 	RDMA_BUF_ADV,   // designed for server
 	WAIT_OPS,
 	RECV_STOP,    	// 10
+
 	RECV_EVICT,
 	RDMA_WRITE_RUNNING,
 	RDMA_READ_RUNNING,
 	SEND_DONE,
 	RDMA_DONE,     	// 15
+
 	RDMA_READ_ADV,	// updated by IS_cq_event_handler()
 	RDMA_WRITE_ADV,
 	CM_DISCONNECT,
@@ -132,21 +171,23 @@ enum mem_type {
 struct message {
   	
 	// Information of the chunk to be mapped to remote memory server.
-	uint64_t buf[MAX_MR_SIZE_GB];		// Remote addr.
-  	uint32_t rkey[MAX_MR_SIZE_GB];   	// remote key
+	uint64_t buf[MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB];		// Remote addr.
+  	uint32_t rkey[MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB];   	// remote key
   	int size_gb;						// Size of the chunk ?
 
 	enum {
-		DONE = 1,
-		INFO,					// Get the remote_addr/rkey of multiple Chunks
-		INFO_SINGLE,			// Get the remote_addr/rkey of a single Chunk
+		DONE = 1,				// Start from 1
+		GOT_CHUNKS,				// Get the remote_addr/rkey of multiple Chunks
+		GOT_SINGLE_CHUNK,		// Get the remote_addr/rkey of a single Chunk
 		FREE_SIZE,
-		EVICT,        // 5
-		ACTIVITY,
-		STOP,
-		BIND,
-		BIND_SINGLE,			// Send a request to ask for a single chunk.
-		QUERY         // 10
+		EVICT,        			// 5
+		ACTIVITY,				
+		
+		STOP,					//7, upper SIGNALs are used by server, below SIGNALs are used by client.
+
+		REQUEST_CHUNKS,
+		REQUEST_SINGLE_CHUNK,	// Send a request to ask for a single chunk.
+		QUERY         			// 10
 	} type;
 };
 
@@ -192,20 +233,30 @@ enum chunk_mapping_state {
 
 
 //
-// Default size is 1 GB
+// Default size is CHUNK_SIZE_GB, 1 GB default.
 //
 struct remote_mapping_chunk {
-	uint32_t 					remote_rkey;		/* remote guys RKEY */
-	uint64_t 					remote_addr;		/* remote guys TO */
+	uint32_t 					remote_rkey;		/* RKEY of the remote mapped chunk */
+	uint64_t 					remote_addr;		/* Virtual address of remote mapped chunk */
 	enum chunk_mapping_state 	chunk_state;
 };
 
 
+
+/**
+ * Use the chunk as contiguous File chunks.
+ * 
+ * For example,
+ * 	File address 0x0 to 0x3fff,ffff  is mapped to the first chunk, remote_mapping_chunk_list->remote_mapping_chunk[0].
+ * 	When send 1 sided RDMA read/write, the remote address shoudl be remote_mapping_chunk_list->remote_mapping_chunk[0].remote_addr + [0 to 0x3fff,ffff]
+ * 
+ */
 struct remote_mapping_chunk_list {
 	struct remote_mapping_chunk *remote_chunk;		
-	//int chunk_size_gb;  		// defined in macro
-	int remote_free_size_gb;
-	int chunk_num;				// length of remote_chunk list
+	//uint32_t chunk_size_gb;  		// defined in macro
+	uint32_t remote_free_size_gb;
+	uint32_t chunk_num;				// length of remote_chunk list
+	uint32_t chunk_ptr;				// points to first empty chunk. 
 
 };
 
@@ -484,15 +535,25 @@ struct rmem_device_control {
 
 /**
  * ########## Function declaration ##########
+ * 
+ * static : static function in C means that this function is only callable in this file.
+ * 
  */
+
+
+
 static	int 	octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr);
 static 	int 	octopus_rdma_cm_event_handler(struct rdma_cm_id *cma_id, struct rdma_cm_event *event);
 
 static 	void 	octopus_cq_event_handler(struct ib_cq * cq, void *rdma_session_context);
 static 	int 	handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_wc *wc);
-static 	int 	send_messaget_to_remote(struct rdma_session_context *rdma_session, int messge_type  , int size_gb);
+static 	int 	send_message_to_remote(struct rdma_session_context *rdma_session, int messge_type  , int size_gb);
 		void 	map_single_remote_memory_chunk(struct rdma_session_context *rdma_session);
+
+// Chunk management
 static 	int 	init_remote_chunk_list(struct rdma_session_context *rdma_session );
+static 	void 	bind_remote_memory_chunks(struct rdma_session_context *rdma_session );
+
 
 static int 		octopus_disconenct_and_collect_resource(struct rdma_session_context *rdma_session);
 
@@ -521,147 +582,138 @@ static struct rmem_device_control  	rmem_dev_ctl_global;
  * 
  */
 	   
-// Print the string of rdma_session_context state.
-// void rdma_session_context_state_print(int id){
-
-// 	switch (id){
-
-// 		case 1 :
-// 			printk("IDLE \n");
-// 			break;
-// 		case 2 :
-// 			printk("CONNECT_REQUEST \n");
-// 			break;
-// 		case 3 :
-// 			printk("ADDR_RESOLVED \n");
-// 			break;
-// 		case 4 :
-// 			printk("ROUTE_RESOLVED \n");
-// 			break;
-// 		case 5 :
-// 			printk("CONNECTED \n");
-// 			break;
-// 		case 6 :
-// 			printk("FREE_MEM_RECV \n");
-// 			break;
-// 		case 7 :
-// 			printk("AFTER_FREE_MEM \n");
-// 			break;
-// 		case 8 :
-// 			printk("RDMA_BUF_ADV \n");
-// 			break;
-// 		case 9 :
-// 			printk("WAIT_OPS \n");
-// 			break;
-// 		case 10 :
-// 			printk("RECV_STOP \n");
-// 			break;
-// 		case 11 :
-// 			printk("RECV_EVICT \n");
-// 			break;
-// 		case 12 :
-// 			printk("RDMA_WRITE_RUNNING \n");
-// 			break;
-// 		case 13 :
-// 			printk("RDMA_READ_RUNNING \n");
-// 			break;
-// 		case 14 :
-// 			printk("SEND_DONE \n");
-// 			break;
-// 		case 15 :
-// 			printk("RDMA_DONE \n");
-// 			break;
-// 		case 16 :
-// 			printk("RDMA_READ_ADV \n");
-// 			break;
-// 		case 17 :
-// 			printk("RDMA_WRITE_ADV \n");
-// 			break;
-// 		case 18 :
-// 			printk("CM_DISCONNECT \n");
-// 			break;
-// 		case 19 :
-// 			printk("ERROR \n");
-// 			break;
-	
-// 		default :
-// 			printk("Un-defined rdma_session_context state. \n");
-// 			break;
-// 	}
-
-// 	return;
-// }
 
 
-char* rdma_session_context_state_print(int id){
-
+/**
+ * The message type name, used for 2-sided RDMA communication.
+ */
+char* rdma_message_print(int message_id){
 	char* message_type_name;
-	message_type_name = (char*)kzalloc(32, GFP_KERNEL); // 32 bytes.
+	message_type_name = (char*)kzalloc(32, GFP_KERNEL); // 32 bytes
 
-	switch (id){
-
-		case 1 :
-			strcpy(message_type_name, "IDLE");
-			break;
-		case 2 :
-			strcpy(message_type_name, "CONNECT_REQUEST");
-			break;
-		case 3 :
-			strcpy(message_type_name, "ADDR_RESOLVED");
-			break;
-		case 4 :
-			strcpy(message_type_name, "ROUTE_RESOLVED");
-			break;
-		case 5 :
-			strcpy(message_type_name, "CONNECTED");
-			break;
-		case 6 :
-			strcpy(message_type_name, "FREE_MEM_RECV");
-			break;
-		case 7 :
-			strcpy(message_type_name, "AFTER_FREE_MEM");
-			break;
-		case 8 :
-			strcpy(message_type_name, "RDMA_BUF_ADV");
-			break;
-		case 9 :
-			strcpy(message_type_name, "WAIT_OPS");
-			break;
-		case 10 :
-			strcpy(message_type_name, "RECV_STOP");
-			break;
-		case 11 :
-			strcpy(message_type_name, "RECV_EVICT");
-			break;
-		case 12 :
-			strcpy(message_type_name, "RDMA_WRITE_RUNNING");
-			break;
-		case 13 :
-			strcpy(message_type_name, "RDMA_READ_RUNNING");
-			break;
-		case 14 :
-			strcpy(message_type_name, "SEND_DONE");
-			break;
-		case 15 :
-			strcpy(message_type_name, "RDMA_DONE");
-			break;
-		case 16 :
-			strcpy(message_type_name, "RDMA_READ_ADV");
-			break;
-		case 17 :
-			strcpy(message_type_name, "RDMA_WRITE_ADV");
-			break;
-		case 18 :
-			strcpy(message_type_name, "CM_DISCONNECT");
-			break;
-		case 19 :
-			strcpy(message_type_name, "ERROR");
-			break;
+	switch(message_id){
 	
-		default :
-			strcpy(message_type_name, "Un-defined state.");
+		case 1:
+			strcpy(message_type_name, "DONE");
+			break;
+		
+		case 2:
+			strcpy(message_type_name, "GOT_CHUNKS");
+			break;
+
+		case 3:
+			strcpy(message_type_name, "GOT_SINGLE_CHUNK");
+			break;
+
+		case 4:
+			strcpy(message_type_name, "FREE_SIZE");
+			break;
+
+		case 5:
+			strcpy(message_type_name, "EVICT");
+			break;
+
+		case 6:
+			strcpy(message_type_name, "ACTIVITY");
+			break;
+
+		case 7:
+			strcpy(message_type_name, "STOP");
+			break;
+
+		case 8:
+			strcpy(message_type_name, "REQUEST_CHUNKS");
+			break;
+
+		case 9:
+			strcpy(message_type_name, "REQUEST_SINGLE_CHUNK");
+			break;
+
+		case 10:
+			strcpy(message_type_name, "QUERY");
+			break;
+		
+		default:
+			strcpy(message_type_name, "ERROR Message Type");
 			break;
 	}
 
 	return message_type_name;
+}
+
+
+
+// Print the string of rdma_session_context state.
+// void rdma_session_context_state_print(int id){
+char* rdma_session_context_state_print(int id){
+
+	char* rdma_seesion_state_name;
+	rdma_seesion_state_name = (char*)kzalloc(32, GFP_KERNEL); // 32 bytes.
+
+	switch (id){
+
+		case 1 :
+			strcpy(rdma_seesion_state_name, "IDLE");
+			break;
+		case 2 :
+			strcpy(rdma_seesion_state_name, "CONNECT_REQUEST");
+			break;
+		case 3 :
+			strcpy(rdma_seesion_state_name, "ADDR_RESOLVED");
+			break;
+		case 4 :
+			strcpy(rdma_seesion_state_name, "ROUTE_RESOLVED");
+			break;
+		case 5 :
+			strcpy(rdma_seesion_state_name, "CONNECTED");
+			break;
+		case 6 :
+			strcpy(rdma_seesion_state_name, "FREE_MEM_RECV");
+			break;
+		case 7 :
+			strcpy(rdma_seesion_state_name, "AFTER_FREE_MEM");
+			break;
+		case 8 :
+			strcpy(rdma_seesion_state_name, "RDMA_BUF_ADV");
+			break;
+		case 9 :
+			strcpy(rdma_seesion_state_name, "WAIT_OPS");
+			break;
+		case 10 :
+			strcpy(rdma_seesion_state_name, "RECV_STOP");
+			break;
+		case 11 :
+			strcpy(rdma_seesion_state_name, "RECV_EVICT");
+			break;
+		case 12 :
+			strcpy(rdma_seesion_state_name, "RDMA_WRITE_RUNNING");
+			break;
+		case 13 :
+			strcpy(rdma_seesion_state_name, "RDMA_READ_RUNNING");
+			break;
+		case 14 :
+			strcpy(rdma_seesion_state_name, "SEND_DONE");
+			break;
+		case 15 :
+			strcpy(rdma_seesion_state_name, "RDMA_DONE");
+			break;
+		case 16 :
+			strcpy(rdma_seesion_state_name, "RDMA_READ_ADV");
+			break;
+		case 17 :
+			strcpy(rdma_seesion_state_name, "RDMA_WRITE_ADV");
+			break;
+		case 18 :
+			strcpy(rdma_seesion_state_name, "CM_DISCONNECT");
+			break;
+		case 19 :
+			strcpy(rdma_seesion_state_name, "ERROR");
+			break;
+	
+		default :
+			strcpy(rdma_seesion_state_name, "Un-defined state.");
+			break;
+	}
+
+	return rdma_seesion_state_name;
 }
