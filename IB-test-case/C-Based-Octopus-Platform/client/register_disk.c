@@ -29,21 +29,15 @@
 
 
 
-MODULE_AUTHOR("Excavator,plsys");
-MODULE_DESCRIPTION("RMEM, remote memory paging over RDMA");
-MODULE_LICENSE("Dual BSD/GPL");
-MODULE_VERSION("1.0");
+//
+// Define global variables
+//
 
-
-/**
- * 1) RDMA connection
- */
-
-
-
+int rmem_major_num;
+struct rmem_device_control  	rmem_dev_ctrl_global;
 
 /**
- * 2) Define device i/o operation
+ * 1) Define device i/o operation
  * 
  */
 
@@ -75,6 +69,10 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int h
 
   int ret  = 0;
 
+  struct rmem_device_control  *rmem_dev_ctrl = data;
+  struct rmem_rdma_queue      *rdma_q_ptr = &(rmem_dev_ctrl->rdma_session->rmem_rdma_queue_list[hw_index]);  // Initialize rdma_queue first.
+
+
   #ifdef  DEBUG_RDMA_CLIENT
   if(rmem_dev_ctrl->rdma_session->rmem_rdma_queue_list == NULL){
     printk(KERN_ERR "%s, rmem_dev_ctrl->rdma_session->rmem_rdma_queue_list is NULL. Should intialize it before go to here.", __func__);
@@ -83,12 +81,9 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int h
 
   #endif
 
-  struct rmem_device_control  *rmem_dev_ctrl = data;
-  struct rmem_rdma_queue      *rdma_q_ptr = rmem_dev_ctrl->rdma_session->rmem_rdma_queue_list[hw_index];  // Initialize rdma_queue first.
-
   // do some initialization for the  rmem_rdma_queues
   // 
-  rdma_q_ptr->index   = hw_index;
+  rdma_q_ptr->q_index   = hw_index;
   //rdma_q_ptr->length  = rmem_dev_ctrl->queue_depth; // Delayed intialization of rdma queue.
   #ifdef DEBUG_RDMA_CLIENT
   // Is thre any kernel defined check ?
@@ -105,7 +100,7 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int h
   return ret;
 
   err:
-  printk(KERN_ERR "%s, ERROR in %s. \n", __func__);
+  printk(KERN_ERR "ERROR in %s. \n", __func__);
   return ret;
 }
 
@@ -141,19 +136,26 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   //
   #ifdef DEBUG_RDMA_CLIENT
   int len = rq->nr_phys_segments;  // number of bio ??
-  printk("%s, get a request.  \n", __func__);
+  if(rq_data_dir(rq) == WRITE){
+    printk("%s, dispatch_queue[%d], get a write request, tag : %d.  \n", __func__, hctx->queue_num, rq->tag);
+  }else{
+    printk("%s, dispatch_queue[%d], get a read request, tag : %d.  \n", __func__, hctx->queue_num, rq->tag);
+  }
   printk("%s, number of bio (rq->nr_phys_segments) in the request:  %d \n ",__func__, len);
   #endif
 
 
   // Transfer I/O request to 1-sided RDMA messages.
   itnernal_ret = transfer_requet_to_rdma_message(rdma_q_ptr, rq);
-
-
-
+  if(unlikely(itnernal_ret)){
+      printk(KERN_ERR "%s, transfer_requet_to_rdma_message is failed. \n", __func__);
+      goto err;
+  }
 
   // Start the reqeust 
-  // [?] Inform some hardware, we are going to handle this request ?
+  // [x] Inform some hardware, we are going to handle this request
+  // After the request handling is done, 
+  // we need to invoke blk_mq_complete_request(request,request->errors) to notify the upper layer.
   blk_mq_start_request(rq);
 
 
@@ -168,18 +170,19 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   //
 
 
-  //
+  // Below is only for debug.
   // Finish of the i/o request 
   // [x] Let's just return a NULL data back .
   // Return or NOT is managed by the driver.
   // The content is correct OR not is checked by the applcations.
+  //  
   //
-  blk_mq_complete_request(rq,rq->errors);  // use 0 or rq->errors ?
+  //blk_mq_complete_request(rq,rq->errors);  // use 0 or rq->errors
 
   return BLK_MQ_RQ_QUEUE_OK;
 
-out:
-
+err:
+  printk(KERN_ERR "ERROR in %s \n", __func__);
   return -1;
 
 }
@@ -234,13 +237,13 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   int write_or_not        = (rq_data_dir(rq) == WRITE);
   sector_t  start_addr    = blk_rq_pos(rq) << RMEM_SECT_SHIFT;   // Calculate the start address of file page. sector_t is u64.
   uint64_t  bytes_len     = blk_rq_bytes(rq);
-  rdma_session_context  *rmda_session = rdma_q_ptr->rdma_session;
+  struct rdma_session_context  *rmda_session = rdma_q_ptr->rdma_session;
 
   
   struct remote_mapping_chunk   *remote_chunk_ptr;
-  uint32_t  start_chunk_index   = start_addr >> CHUNK_INDEX_OFSSET;   // 1GB/chunk in default.
-  uint32_t  end_chunk_index     = (start_addr + bytes_len - PAGE_SIZE) >> CHUNK_INDEX_OFSSET;  // Assume start_chunk_index == end_chunk_index.
-  uint64_t  offset_within_chunk     =  start_addr & 
+  uint32_t  start_chunk_index   = start_addr >> CHUNK_SHIFT;   // 1GB/chunk in default.
+  uint32_t  end_chunk_index     = (start_addr + bytes_len - PAGE_SIZE) >> CHUNK_SHIFT;  // Assume start_chunk_index == end_chunk_index.
+  uint64_t  offset_within_chunk     =  start_addr & CHUNK_MASK; // get the file address offset within chunk.
 
 
   #ifdef DEBUG_RDMA_CLINET 
@@ -253,24 +256,25 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   #endif
 
   //Get the remote_chunk information
-  remote_chunk_ptr  = rmda_session->remote_chunk_list->remote_chunk[start_chunk_index];
-  // Confirm this need chunk is mapped.
-  // OR ?
-  if(remote_chunk_ptr->chunk_state != MAPPED){
-    ret =-1;
-    printk("%s, chunk[%d] isn't mapped to remote memory serveer. \n", __func__, start_chunk_index);
-    goto err;
-  }
+  remote_chunk_ptr  = &(rmda_session->remote_chunk_list.remote_chunk[start_chunk_index]);
 
   // Build the 1-sided RDMA read/write.
   if(write_or_not){
     // post a 1-sided RDMA write
     // Into RDMA section.
-    ret = post_rdma_write(rq, remote_chunk_ptr,  );
-
+    ret = post_rdma_write(rmda_session ,rq, rdma_q_ptr, remote_chunk_ptr,  offset_within_chunk, bytes_len);
+    if(unlikely(ret)){
+      printk(KERN_ERR "%s, post 1-sided RDMA write failed. \n", __func__);
+      goto err;
+    }
 
   }else{
     // post a 1-sided RDMA read
+    ret = post_rdma_read(rmda_session, rq, rdma_q_ptr, remote_chunk_ptr,  offset_within_chunk, bytes_len);
+    if(unlikely(ret)){
+      printk(KERN_ERR "%s, post 1-sided RDMA read failed. \n", __func__);
+      goto err;
+    }
 
   }
 
@@ -281,7 +285,7 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   return ret;
 
   err:
-  printk(KERN_ERR "%s, ERROR in %s \n", __func__);
+  printk(KERN_ERR "ERROR in %s \n", __func__);
   return ret;
 }
 
@@ -318,12 +322,12 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
 static int init_blk_mq_tag_set(struct rmem_device_control* rmem_dev_ctrl){
 
   struct blk_mq_tag_set* tag_set = &(rmem_dev_ctrl->tag_set);
-  int err = 0;
+  int ret = 0;
 
-  if(!tag_set){
-    printk("init_blk_mq_tag_set : pass a null pointer in. \n");
-    err = -1;
-    goto out;
+  if(unlikely(!tag_set)){
+    printk(KERN_ERR "%s, init_blk_mq_tag_set : pass a null pointer in. \n", __func__);
+    ret = -1;
+    goto err;
   }
 
   tag_set->ops = &rmem_mq_ops;
@@ -335,18 +339,17 @@ static int init_blk_mq_tag_set(struct rmem_device_control* rmem_dev_ctrl){
   tag_set->driver_data = rmem_dev_ctrl;                     // The driver controller, the context 
 
 
-  err = blk_mq_alloc_tag_set(tag_set);      // Check & correct the value within the blk_mq_tag_set.
-	if (err){
+  ret = blk_mq_alloc_tag_set(tag_set);      // Check & correct the value within the blk_mq_tag_set.
+	if (unlikely(ret)){
     pr_err("blk_mq_alloc_tag_set error. \n");
-		goto out;
+		goto err;
   }
 
+  return ret;
 
-out:
-  return err;
-
-error:
-  pr_err(" Error in  init_blk_mq_tag_set \n");
+err:
+  pr_err(" Error in  %s \n",__func__);
+  return ret;
 }
 
 
@@ -372,10 +375,10 @@ static int init_blk_mq_queue(struct rmem_device_control* rmem_dev_ctrl){
   int page_size;
 
   rmem_dev_ctrl->queue = blk_mq_init_queue(&rmem_dev_ctrl->tag_set);   // Build the block i/o queue.
-	if (IS_ERR(rmem_dev_ctrl->queue )) {
+	if (unlikely(IS_ERR(rmem_dev_ctrl->queue ))) {
 		ret = PTR_ERR(rmem_dev_ctrl->queue );
-    printk("RBD_create_device : create the software staging reqeust queue failed. \n");
-		goto out;
+    printk(KERN_ERR "%s, create the software staging reqeust queue failed. \n", __func__);
+		goto err;
 	}
 
   // request_queue->queuedata is reservered for driver usage.
@@ -400,11 +403,10 @@ static int init_blk_mq_queue(struct rmem_device_control* rmem_dev_ctrl){
 	blk_queue_max_hw_sectors(rmem_dev_ctrl->queue, RMEM_QUEUE_MAX_SECT_SIZE);   // [?] 256kb for current /dev/sda
 
 
-out:
   return ret;
 
-error:
-  pr_err("Error in init_blk_mq_queue\n");
+err:
+  printk(KERN_ERR "Error in %s\n",__func__);
   return ret;
 }
 
@@ -506,10 +508,10 @@ int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
   sector_t remote_mem_size = RMEM_SIZE_IN_BYTES;
 
   rmem_dev_ctrl->disk = alloc_disk_node(1, NUMA_NO_NODE); // minors =1, at most have one partition.
-  if(!rmem_dev_ctrl->disk){
-    pr_err("%s: Failed to allocate disk node\n", __func__);
+  if(unlikely(!rmem_dev_ctrl->disk)){
+    printk("%s: Failed to allocate disk node\n", __func__);
 		ret = -ENOMEM;
-    goto out;
+    goto err;
   }
 
   rmem_dev_ctrl->disk->major  = rmem_dev_ctrl->major;
@@ -528,13 +530,14 @@ int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
   // After call this function, disk is active and prepared well for any i/o request.
   add_disk(rmem_dev_ctrl->disk);
 
-   //debug
+  #ifdef DEBUG_RDMA_CLIENT
   printk("init_gendisk : initialize disk %s done. \n", rmem_dev_ctrl->disk->disk_name);
+  #endif
 
-out:
   return ret;
 
-error:
+err:
+  printk(KERN_ERR "ERROR in %s \n",__func__);
   del_gendisk(rmem_dev_ctrl->disk);
   return ret;
 }
@@ -576,6 +579,7 @@ int init_rmem_device_control(char* dev_name, struct rmem_device_control* rmem_de
   rmem_dev_ctrl->queue_depth  = RMEM_QUEUE_DEPTH; // 
   rmem_dev_ctrl->nr_queues    = online_cores;     // staging queue = dispatch queue = avaible cores.
 
+  rmem_dev_ctrl->freed       = 0;                // Falg, if the block resouce is already freed.
   //
   // blk_mq_tag_set, request_queue, rmem_rdma_queue are waiting to be initialized later. 
   //
@@ -607,7 +611,7 @@ out:
 int RMEM_create_device(char* dev_name, struct rmem_device_control* rmem_dev_ctrl ){
 
   int ret = 0;  
-  unsigned long page_size; 
+  //unsigned long page_size; 
 
   //
   //  1) Initiaze the fields of rmem_device_control structure 
@@ -675,9 +679,9 @@ error:
  * More Explanation
  *    1) online_cores is initialized in rdma part.
  */
- struct rmem_device_control*   RMEM_init_disk_driver(struct rmem_device_control *rmem_dev_ctl){
+ int  rmem_init_disk_driver(struct rmem_device_control *rmem_dev_ctl){
 
-  int internel_ret = 0;
+  int ret = 0;
 	
   #ifdef  DEBUG_RDMA_CLIENT 
   printk("%s,Load kernel module : register remote block device. \n", __func__);
@@ -690,8 +694,10 @@ error:
   // 252 rmempool
   //
 	rmem_major_num = register_blkdev(0, "rmempool");
-	if (rmem_major_num < 0){
-		return rmem_major_num;
+	if (unlikely(rmem_major_num < 0)){
+    printk(KERN_ERR "%s, register_blkdev failed. \n",__func__);
+    ret = -1;
+		goto err;
   }
 
   // number of staging and dispatch queues, equal to available cores
@@ -708,25 +714,74 @@ error:
   // create the block device here
   // Create block information within functions
   
-  internel_ret = RMEM_create_device(NULL, rmem_dev_ctl);  
-  if(internel_ret){
-    printk(KERN_ERR, "%s, Crate block device error.\n", __func__);
+  ret = RMEM_create_device(NULL, rmem_dev_ctl);  
+  if(unlikely(ret)){
+    printk(KERN_ERR "%s, Crate block device error.\n", __func__);
     goto err;
   }
 
-  return rmem_dev_ctl;
+  return ret;
 
 err:
   printk(KERN_ERR "ERROR in %s \n", __func__);
-	return NULL;
+	return ret;
 }
+
+
+
+
+/**
+ * 
+ * Blcok Resource free
+ * 
+ */
+
+// This function can only be called once.
+//  And the rmem_dev_ctrl context is initialized.
+int octopus_free_block_devicce(struct rmem_device_control * rmem_dev_ctrl ){
+  int ret =0;
+
+  if( rmem_dev_ctrl != NULL && rmem_dev_ctrl->freed != 0){
+    //already called 
+    return ret;
+  }
+
+  rmem_dev_ctrl->freed  = 1;
+
+  if(rmem_dev_ctrl!=NULL){
+
+    unregister_blkdev(rmem_dev_ctrl->major, rmem_dev_ctrl->dev_name);
+
+    if(likely(rmem_dev_ctrl->disk != NULL)){
+      del_gendisk(rmem_dev_ctrl->disk);
+      printk("%s, free gendisk done. \n",__func__);
+    }
+	
+    blk_mq_free_tag_set(&(rmem_dev_ctrl->tag_set));
+    printk("%s, free tag_set done. \n",__func__);
+
+    if(likely(rmem_dev_ctrl->disk != NULL)){
+	    put_disk(rmem_dev_ctrl->disk);
+      printk("%s, put_disk gendisk done. \n",__func__);
+    }
+
+    printk("%s, Free Block Device, %s, DONE. \n",__func__, rmem_dev_ctrl->dev_name);
+
+  }else{
+      printk("%s, rmem_dev_ctrl is NULL, nothing to free \n",__func__);
+  }
+
+  return ret;
+}
+
+
 
 // module function
-static void RMEM_cleanup_module(void){
+// static void RMEM_cleanup_module(void){
 
-	unregister_blkdev(rmem_major_num, "rmempool");
+// 	unregister_blkdev(rmem_major_num, "rmempool");
 
-}
+// }
 
 
 

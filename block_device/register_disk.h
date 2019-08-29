@@ -51,9 +51,9 @@ struct rmem_rdma_cmd {
 	struct ib_mr		*mr;
 	//struct nvme_rdma_qe	sqe;
 	//struct ib_sge		sge[1 + NVME_RDMA_MAX_INLINE_SEGMENTS];
-	u32			num_sge;
-	int			nents;
-	bool			inline_data;
+	u32					num_sge;
+	int					nents;
+	bool				inline_data;
 	struct ib_reg_wr	reg_wr;
 	struct ib_cqe		reg_cqe;
 	//struct nvme_rdma_queue  *queue;

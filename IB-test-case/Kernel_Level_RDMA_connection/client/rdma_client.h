@@ -477,7 +477,7 @@ struct rmem_device_control {
 	struct blk_mq_tag_set	    tag_set;			// Used for information passing. Define blk_mq_ops.(block_device_operations is defined in gendisk.)
 	
   //[?] What's  this queue used for ?
-  struct rmem_rdma_queue	  *rdma_queues;			//  [?] The rdma connection session ?? one rdma session queue per software staging queue ??
+  struct rmem_rdma_queue	  	*rdma_queues;			//  [?] The rdma connection session ?? one rdma session queue per software staging queue ??
 	unsigned int		      		queue_depth;      //[?] How to set these numbers ?
 	unsigned int		      		nr_queues;				// [?] pass to blk_mq_tag_set->nr_hw_queues ??
 	//int			              		index; /* drive idx */

@@ -5,12 +5,27 @@
 
 #include "octopus_client.h"
 
+
+MODULE_AUTHOR("Excavator,plsys");
+MODULE_DESCRIPTION("RMEM, remote memory paging over RDMA");
+MODULE_LICENSE("Dual BSD/GPL");
+MODULE_VERSION("1.0");
+
+//
+// Implement the global vatiables here
+//
+
+struct rdma_session_context 	rdma_session_global;
+int online_cores;
+
+
 //
 // ############# Start of RDMA Communication (CM) event handler ########################
 //
 // [?] All the RDMA Communication(CM) event is triggered by hardware and mellanox driver.
 //		No need to maintain a daemon thread to handle the CM events ?  -> stateless handler 
 //
+
 
 /**
  * The rdma CM event handler function
@@ -21,7 +36,7 @@
  * 	 CMA Event handler  && cq_event_handler , 2 different functions for CM event and normal RDMA message handling.
  * 
  */
-static int octopus_rdma_cm_event_handler(struct rdma_cm_id *cma_id, struct rdma_cm_event *event)
+int octopus_rdma_cm_event_handler(struct rdma_cm_id *cma_id, struct rdma_cm_event *event)
 {
 	int ret;
 	struct rdma_session_context *rdma_session = cma_id->context;
@@ -85,12 +100,46 @@ static int octopus_rdma_cm_event_handler(struct rdma_cm_id *cma_id, struct rdma_
 		break;
 
 	case RDMA_CM_EVENT_DISCONNECTED:	//should get error msg from here
-		printk( "%s, DISCONNECT EVENT...\n",__func__);
+		printk( "%s, Receive DISCONNECTED  signal \n",__func__);
+		//rdma_session->state = CM_DISCONNECT;
+
+		if(rdma_session->freed){ // 1, during free process.
+			// Client request for RDMA disconnection.
+			#ifdef DEBUG_RDMA_CLIENT
+			printk("%s, RDMA disconnect evetn, requested by client. \n",__func__);
+			#endif
+
+			// Wakeup the caller.
+			// wake_up_interruptible(&rdma_session->sem);
+
+
+
+		}else{					// freed ==0, newly start free process
+			// Remote server requests for disconnection.
+
+			// !! DEAD PATH NOW --> CAN NOT FREE CM_ID !!
+			// wait for RDMA_CM_EVENT_TIMEWAIT_EXIT ??
+			//			TO BE DONE
+
+			#ifdef DEBUG_RDMA_CLIENT
+			printk("%s, RDMA disconnect evetn, requested by client. \n",__func__);
+			#endif
+			//do we need to inform the client, the connect is broken ?
+			rdma_disconnect(rdma_session->cm_id);
+
+			octopus_disconenct_and_collect_resource(rdma_session);  	// Free RDMA resource and exit main function
+			octopus_free_block_devicce(rdma_session->rmem_dev_ctrl);	// Free block device resource 
+		}
+		break;
+
+	case RDMA_CM_EVENT_TIMEWAIT_EXIT:
+		// After the received DISCONNECTED_EVENT, need to wait the on-the-fly RDMA message
+		// https://linux.die.net/man/3/rdma_get_cm_event
+
+		printk("%s, Wait for in-the-fly RDMA message finished. \n",__func__);
 		rdma_session->state = CM_DISCONNECT;
-		
-		// RDMA is off
-		//octopus_rdma_disconnect_handler(rdma_session);
-		// Free the resource in the caller thread.
+
+		//Wakeup caller
 		wake_up_interruptible(&rdma_session->sem);
 
 		break;
@@ -158,7 +207,7 @@ static int rdma_resolve_ip_to_ib_device(struct rdma_session_context *rdma_sessio
  * Build the Queue Pair (QP).
  * 
  */
-static int octopus_create_qp(struct rdma_session_context *rdma_session)
+int octopus_create_qp(struct rdma_session_context *rdma_session)
 {
 	struct ib_qp_init_attr init_attr;
 	int ret;
@@ -192,7 +241,7 @@ static int octopus_create_qp(struct rdma_session_context *rdma_session)
 
 // Prepare for building the Connection to remote IB servers. 
 // Create Queue Pair : pd, cq, qp, 
-static int octopus_create_rdma_queues(struct rdma_session_context *rdma_session, struct rdma_cm_id *cm_id)
+int octopus_create_rdma_queues(struct rdma_session_context *rdma_session, struct rdma_cm_id *cm_id)
 {
 	int ret = 0;
 
@@ -264,7 +313,7 @@ err:
  * 		rdma_session_context->send_sgl
  * Post these 2 WRs to receive/send controll messages.
  */
-static void octopus_setup_message_wr(struct rdma_session_context *rdma_context)
+void octopus_setup_message_wr(struct rdma_session_context *rdma_context)
 {
 	// 1) Reserve a wr to receive RDMA message
 	rdma_context->recv_sgl.addr = rdma_context->recv_dma_addr;      
@@ -315,7 +364,7 @@ static void octopus_setup_message_wr(struct rdma_session_context *rdma_context)
  * 		rdma_context->rq_wr
  * 		rdma_context->sq_wr
  */
-static int octopus_setup_buffers(struct rdma_session_context *rdma_session)
+int octopus_setup_buffers(struct rdma_session_context *rdma_session)
 {
 	int ret;
 
@@ -400,7 +449,7 @@ error:
  * All the PD, QP, CP are setted up, connect to remote IB servers.
  * This will send a CM event to remote IB server && get a CM event response back.
  */
-static int octopus_connect_remote_memory_server(struct rdma_session_context *rdma_session)
+int octopus_connect_remote_memory_server(struct rdma_session_context *rdma_session)
 {
 	struct rdma_conn_param conn_param;
 	int ret;
@@ -431,7 +480,7 @@ static int octopus_connect_remote_memory_server(struct rdma_session_context *rdm
 
 
 //
-// ############# Start of RDMA Communication (CM) event handler ########################
+// <<<<<<<<<<<<<<<<<<<<<<<  End of RDMA Communication (CM) event handler <<<<<<<<<<<<<<<<<<<<<<<
 //
 
 
@@ -440,7 +489,7 @@ static int octopus_connect_remote_memory_server(struct rdma_session_context *rdm
 
 
 //
-// ###########  Start of handle  TWO-SIDED RDMA message section ################
+// >>>>>>>>>>>>>>>>>>>>>>  Start of handle  TWO-SIDED RDMA message section >>>>>>>>>>>>>>>>>>>>>>
 //
 
 
@@ -452,7 +501,7 @@ static int octopus_connect_remote_memory_server(struct rdma_session_context *rdm
  * [?] For the RDMA read/write, is  there also a WC to acknowledge the finish of this ??
  * 
  */
-static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kernel_cb->cq;  ctx : cq->context, just the kernel_cb
+void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kernel_cb->cq;  ctx : cq->context, just the kernel_cb
 {
 	bool 							stop_waiting_on_cq 	= 	false;
 	struct rdma_session_context 	*rdma_session		=	rdma_ctx;
@@ -473,7 +522,7 @@ static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq
 
 	// If current function, rdma_cq_event_handler, is invoked, a WC is on the CQE.
 	// Get the SIGNAL, WC, by invoking ib_poll_cq.
-	if( (ret = ib_poll_cq(rdma_session->cq, 1, &wc)) == 1 ) {   //ib_poll_cq, get "one" wc from cq.
+	if(likely( (ret = ib_poll_cq(rdma_session->cq, 1, &wc)) == 1  )) {   //ib_poll_cq, get "one" wc from cq.
 		if (wc.status != IB_WC_SUCCESS) {   		// IB_WC_SUCCESS == 0
 			if (wc.status == IB_WC_WR_FLUSH_ERR) {
 				printk(KERN_ERR "%s, cq flushed\n", __func__);
@@ -492,12 +541,12 @@ static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq
 				#ifdef DEBUG_RDMA_CLIENT
 				printk("%s, Got a WC from CQ, IB_WC_RECV. \n", __func__);
 				#endif
-
+				// Need to do actions based on the received message type.
 				ret = handle_recv_wr(rdma_session, &wc);
-			  	if (ret) {
+			  	if (unlikely(ret)) {
 				 	printk(KERN_ERR "%s, recv wc error: %d\n", __func__, ret);
 				 	goto err;
-				 }
+				}
 
 				 // debug
 				 // Stop waiting for message.
@@ -520,6 +569,9 @@ static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq
 
 				break;
 			case IB_WC_SEND:
+
+				// nothing need to be done for a IB_WC_SEND.
+
 				// ret = client_send(cb, &wc);
 				// if (ret) {
 				// 	printk(KERN_ERR PFX "send wc error: %d\n", ret);
@@ -527,16 +579,16 @@ static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq
 				// }
 
 				#ifdef DEBUG_RDMA_CLIENT
-				printk("%s, Got a WC from CQ, IB_WC_SEND \n", __func__);
+				printk("%s, Got a WC from CQ, IB_WC_SEND, then wait for receive RDMA mesage.. \n", __func__);
 				#endif
 
 				 break;
 			case IB_WC_RDMA_READ:
-				// ret = client_read_done(cb, &wc);
-				// if (ret) {
-				// 	printk(KERN_ERR PFX "read wc error: %d, cb->state=%d\n", ret, cb->state);
-				// 	goto error;
-				// }
+				 ret = rdma_read_done( &wc);
+				 if (unlikely(ret)) {
+				 	printk(KERN_ERR "%s, Handle cq event, IB_WC_RDMA_READ, error \n", __func__);
+				 	goto err;
+				 }
 
 				#ifdef DEBUG_RDMA_CLIENT
 				printk("%s, Got a WC from CQ, IB_WC_RDMA_READ \n", __func__);
@@ -544,11 +596,11 @@ static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq
 
 				break;
 			case IB_WC_RDMA_WRITE:
-				// ret = client_write_done(cb, &wc);
-				// if (ret) {
-				// 	printk(KERN_ERR PFX "write wc error: %d, cb->state=%d\n", ret, cb->state);
-				// 	goto error;
-				// }
+				ret = rdma_write_done(&wc);
+				 if (unlikely(ret)) {
+				 	printk(KERN_ERR "%s, Handle cq event, IB_WC_RDMA_WRITE, error \n", __func__);
+				 	goto err;
+				 }
 
 				#ifdef DEBUG_RDMA_CLIENT
 				printk("%s, Got a WC from CQ, IB_WC_RDMA_WRITE \n", __func__);
@@ -564,7 +616,7 @@ static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq
 		// Notify_cq, poll_cq are all both one-shot
 		// Get notification for the next wc.
 		ret = ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);   
-		if (ret) {
+		if (unlikely(ret)) {
 			printk(KERN_ERR "%s, ib_create_cq failed\n", __func__);
 			goto err;
 		}
@@ -577,6 +629,7 @@ static void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq
 
 	return;
 err:
+	printk(KERN_ERR "ERROR in %s \n",__func__);
 	rdma_session->state = ERROR;
 }
 
@@ -588,7 +641,7 @@ err:
  * 
  * 
  */
-static int send_message_to_remote(struct rdma_session_context *rdma_session, int messge_type  , int size_gb)
+int send_message_to_remote(struct rdma_session_context *rdma_session, int messge_type  , int size_gb)
 {
 	int ret = 0;
 	struct ib_send_wr * bad_wr;
@@ -620,7 +673,7 @@ static int send_message_to_remote(struct rdma_session_context *rdma_session, int
  * 		According to the RDMA message information, rdma_session_context->state, to set some fields.
  * 		FREE_SIZE : set the 
  */
-static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_wc *wc)
+int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_wc *wc)
 {
 	int ret;
 	int i;		// Some local index
@@ -632,7 +685,7 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 
 	#ifdef DEBUG_RDMA_CLIENT
 	// Is this check necessary ??
-	if (rdma_session->state < CONNECTED) {
+	if (unlikely(rdma_session->state < CONNECTED) ) {
 		printk(KERN_ERR "%s, RDMA is not connected\n", __func__);	
 		return -1;
 	}
@@ -656,7 +709,7 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 			rdma_session->state = FREE_MEM_RECV;	
 			
 			ret = init_remote_chunk_list(rdma_session);
-			if(ret){
+			if(unlikely(ret)){
 				printk(KERN_ERR "Initialize the remote chunk failed. \n");
 			}
 
@@ -673,8 +726,9 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 
 			bind_remote_memory_chunks(rdma_session);
 
-			// debug
-			rdma_session->state = TEST_DONE;
+			// Received free chunks from remote memory,
+			// Wakeup the waiting main thread and continure.
+			rdma_session->state = RECEIVED_CHUNKS;
 			wake_up_interruptible(&rdma_session->sem);  // Finish main function.
 
 			break;
@@ -683,7 +737,7 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 			//rdma_session->state = WAIT_OPS;
 		
 
-			//debug
+			#ifdef DEBUG_RDMA_CLIENT 
 			// Check the received data
 			// All the rkey[] are reset to 0 before sending to client.
 			for(i=0; i< MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB; i++){
@@ -693,13 +747,13 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
 																		ntohl(rdma_session->recv_buf->rkey[i]));
 				}
 			}
+			#endif
 
 			// debug
-			rdma_session->state = TEST_DONE;
-			wake_up_interruptible(&rdma_session->sem);  // Finish main function.
+			//rdma_session->state = TEST_DONE;
+			//wake_up_interruptible(&rdma_session->sem);  // Finish main function.
 
-			//IS_single_chunk_init(cb);
-			//map_single_remote_memory_chunk(rdma_session);
+			bind_remote_memory_chunks(rdma_session);
 
 			break;
 		case EVICT:
@@ -732,7 +786,7 @@ static int handle_recv_wr(struct rdma_session_context *rdma_session, struct ib_w
  * 	So we post the cqe notification in cq_event_handler function.
  * 
  */
-static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, int num_chunk){
+int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, int num_chunk){
 	int ret = 0;
 	// Prepare the receive WR
 	struct ib_recv_wr *bad_wr;
@@ -771,6 +825,9 @@ static int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, 
 
 
 
+
+
+
 //
 // >>>>>>>>>>>>>>>  Start of ONE-SIDED RDMA message section >>>>>>>>>>>>>>>
 //	Stateful,
@@ -799,23 +856,26 @@ int init_rdma_command_list(struct rdma_session_context *rdma_session, uint32_t q
 	struct rmem_rdma_queue		*rdma_q_ptr;
 	struct rmem_rdma_command 	*rdma_cmd_ptr;  // rmem_rdma_command iterator.
 
-	
-	rdma_q_ptr = rdma_session->rmem_rdma_queue_list[queue_ind];
-	rdma_q_ptr->ptr	= 0;  // Start from 0.
+
+	rdma_q_ptr = &(rdma_session->rmem_rdma_queue_list[queue_ind]);
+	rdma_q_ptr->cmd_ptr	= 0;  // Start from 0.
 	rdma_q_ptr->length	= RMEM_QUEUE_DEPTH;	// This value should match "rmem_dev_ctrl->queue_depth" 
-	rdma_q_ptr->index	= 0;				// The corresponding dispatch queue index, assigned in blk_mq_ops->.init_hctx.
+	rdma_q_ptr->q_index	= 0;				// The corresponding dispatch queue index, assigned in blk_mq_ops->.init_hctx.
 	rdma_q_ptr->rdma_session = rdma_session;
 	// Build the rdma_command list.
 	rdma_q_ptr->rmem_rdma_cmd_list = (struct rmem_rdma_command*)kzalloc( sizeof(struct rmem_rdma_command) * rdma_q_ptr->length, GFP_KERNEL );
 
 	// Initialize each rmem_rdma_command
 	for(i=0; i< rdma_q_ptr->length; i++){
-		rdma_cmd_ptr = rdma_q_ptr->rmem_rdma_cmd_list[i];
+		rdma_cmd_ptr = &(rdma_q_ptr->rmem_rdma_cmd_list[i]);
+
+		// Set its flag
+		atomic_set(&(rdma_cmd_ptr->free_state), 1);
 
 		// [?]As the design of InfiniSwap, IS_PAGE_SIZE * MAX_SGL_LEN;, reserve enough size ?
 		rdma_cmd_ptr->rdma_buf = (char*)kzalloc(ONE_SIEDED_RDMA_BUF_SIZE, GFP_KERNEL); 
-		rdma_cmd_ptr->rdma_dma_addr = ib_dma_map_single(rdma_session->pd->device, 
-																			rdma_q_ptr->rmem_rdma_cmd_list[i]->rdma_buf,
+		rdma_cmd_ptr->rdma_dma_addr = ib_dma_map_single(rdma_session->pd->device,
+																			rdma_q_ptr->rmem_rdma_cmd_list[i].rdma_buf,
 																			ONE_SIEDED_RDMA_BUF_SIZE,
 																			DMA_BIDIRECTIONAL);
 		// Change to use the MACRO for space efficiency ?
@@ -825,11 +885,12 @@ int init_rdma_command_list(struct rdma_session_context *rdma_session, uint32_t q
 		#ifdef	DEBUG_RDMA_CLINET 
 		if(rdma_session->qp->device->local_dma_lkey){
 			rdma_cmd_ptr->rdma_sgl.lkey = rdma_session->qp->device->local_dma_lkey;
-			printk("%s,Get lkey from dma_session->qp->device->local_dma_lkey, 0x%lx. \n", __func__,
-																					rdma_cmd_ptr->rdma_sgl.lkey);
+			printk("%s, rdma_queue[%d] : rdma_cmd[%d], Get lkey from dma_session->qp->device->local_dma_lkey, 0x%x. \n", __func__, 
+																						queue_ind,i, rdma_cmd_ptr->rdma_sgl.lkey);
 		}else{
-			printk("%s, dma_session->qp->device->local_dma_lkey is NULL. \n", __func__);
-			rdma_cmd_ptr->rdma_sgl.lkey = NULL;
+			printk("%s, rdma_queue[%d] : rdma_cmd[%d], dma_session->qp->device->local_dma_lkey is 0 (NULL). \n", __func__, 
+																						queue_ind, i);
+			rdma_cmd_ptr->rdma_sgl.lkey = 0;
 		}
 		#else
 		rdma_cmd_ptr->rdma_sgl.lkey = rdma_session->qp->device->local_dma_lkey;
@@ -839,17 +900,17 @@ int init_rdma_command_list(struct rdma_session_context *rdma_session, uint32_t q
 		rdma_cmd_ptr->rdma_sq_wr.wr.sg_list = &(rdma_cmd_ptr->rdma_sgl);
 		
 		//[?] The problem is that, one I/O request can have multiple bio and pages ？
-		rdma_cmd_ptr->rdma_sq_wr.wr.num_sge	= MAX_REQUEST_SGL;  // This value is 1, if  the kernel version > 4.0 ??
-		rdma_cmd_ptr->rdma_sq_wr.wr.wr_id	= uint64_from_ptr(rdma_cmd_ptr);  // ib_rdma_wr->ib_send_wr->wr_id is the driver_data ?
+		rdma_cmd_ptr->rdma_sq_wr.wr.num_sge	= 1;  // This value is 1, if  the kernel version > 4.0 ??
+		rdma_cmd_ptr->rdma_sq_wr.wr.wr_id	= (u64)rdma_cmd_ptr;  // ib_rdma_wr->ib_send_wr->wr_id is the driver_data ?
 
 		// Bind to a request
-		rdma_cmd_ptr->req = NULL; //
+		rdma_cmd_ptr->io_rq = NULL; //
 	}
 
 	return ret;
 
 err:
-	printk("%s, ERROR in %s \n",__func__);
+	printk(KERN_ERR "ERROR in %s \n",__func__);
 	return ret;
 }
 
@@ -858,7 +919,7 @@ err:
  * RDMA queue is connected to Dispatch queue.
  * All the i/o request in Dispatch queue will be transfered to a 1-sided RDMA wr stored in RDMA queue.
  */
-int init_rdma_command_queue_list(rdma_session_context *rdma_session){
+int init_rdma_command_queue_list(struct rdma_session_context *rdma_session){
 
 	int ret = 0;
 	uint32_t i;
@@ -888,32 +949,321 @@ int init_rdma_command_queue_list(rdma_session_context *rdma_session){
 	return ret;
 
 err:
-	printk("%s, ERROR in %s \n",__func__);
+	printk( KERN_ERR "ERROR in %s \n",__func__);
 	return ret;
 }
 
 
 /**
  * Gather the I/O request data and build the 1-sided RDMA write
- *  Invoked by Block Deivce part
+ *  Invoked by Block Deivce part. Don't declare it as static.
  * 
  * 
  */
-int post_rdma_write(){
+int post_rdma_write(struct rdma_session_context *rdma_session, struct request* io_rq, struct rmem_rdma_queue* rdma_q_ptr,  
+					struct remote_mapping_chunk *remote_chunk_ptr, uint64_t offse_within_chunk, uint64_t len ){
 
 	int ret = 0;
+	int cpu;
+	struct rmem_rdma_command *rdma_cmd_ptr;
+	struct ib_send_wr *bad_wr;
+
+	// Confirm this need chunk is mapped.
+  	// OR 
+	// [?] Request to bind this chunk. TO BE DONE.
+  	if(remote_chunk_ptr->chunk_state != MAPPED){
+    	ret =-1;
+    	printk("%s, chunk,rkey: 0x%x isn't mapped to remote memory serveer. \n", __func__, remote_chunk_ptr->remote_rkey);
+    	goto err;
+  	}
+
+
+	// Get a free WR from this rdma_queue
+	// And fille  i/o data into the RDMA wr.
+	rdma_cmd_ptr = get_a_free_rdma_cmd_from_rdma_q(rdma_q_ptr);
+	if(unlikely(rdma_cmd_ptr == NULL)){
+		printk(KERN_ERR "%s, No available rmem_rdma_command in this rdma_queue[%d], 0x%llx \n", __func__, 
+																				rdma_q_ptr->q_index ,(unsigned long long)rdma_q_ptr);
+		goto err;
+	}
+
+
+	// Is this necessary ??
+	cpu = get_cpu();	// Stop context switch ??
+
+	rdma_cmd_ptr->io_rq				= io_rq;						// Reserve this i/o request as responds request. 
+	rdma_cmd_ptr->rdma_sq_wr.rkey	= remote_chunk_ptr->remote_rkey;
+	rdma_cmd_ptr->rdma_sq_wr.remote_addr	= remote_chunk_ptr->remote_addr + offse_within_chunk; // only read a page
+	rdma_cmd_ptr->rdma_sq_wr.wr.opcode		= IB_WR_RDMA_WRITE;
+	rdma_cmd_ptr->rdma_sq_wr.wr.sg_list->length = len;				// length of the page, should a page alignment ?
+
+	// [!!] OPTIMIZE HERE  [!!]
+	copy_data_to_rdma_buf(io_rq, rdma_cmd_ptr);			// [??]Copy data from i/o request to RDMA buffer.
+
+	//post the 1-sided RDMA write
+	// Use the global RDMA context, rdma_session_global
+	ret = ib_post_send(rdma_session->qp, (struct ib_send_wr*)&rdma_cmd_ptr->rdma_sq_wr, &bad_wr );
+	if(unlikely(ret)){
+		printk(KERN_ERR "%s, post 1-sided RDMA write failed. \n", __func__);
+		goto err;
+	}
+
+
+	// debug section
+	// print debug information here.
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, the data byte size of current i/o request : %llu \n", __func__, len);
+	#endif
+
+
+	put_cpu();
+
+	return ret;
+
+err:
+	printk(KERN_ERR "ERROR in %s \n",__func__);
+	return ret;
+}
+
+
+
+/**
+ * 1-sided RDMA write is done.
+ * 		Write data into remote memory pool successfully.
+ * 		
+ */
+int rdma_write_done(struct ib_wc *wc){
+
+	struct rmem_rdma_command 	*rdma_cmd_ptr;
+	//struct request 				*io_rq;
+
+
+	//Get rdma_command from wr->wr_id
+	rdma_cmd_ptr	= (struct rmem_rdma_command *)(wc->wr_id);
+	if(unlikely(rdma_cmd_ptr == NULL)){
+		printk(KERN_ERR "%s, get NULL rmem_rdma_command from wc->wr_id \n", __func__);
+		return -1;
+	}
+
+	//io_rq	= rdma_cmd_ptr->io_rq;
+	
+	//!!  Write data into remote memory pool successfully, no need to copy anything into the bio !!
+	// Copy data to i/o request's physical pages
+	// [!!] Assume there is only 1 page in rdma_buf [!!]
+	//memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, PAGE_SIZE );
+
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, Write rquest, tag : %d finished. Return to caller. \n",__func__, rdma_cmd_ptr->io_rq->tag);
+	#endif
+
+
+	// Notify the caller that the i/o request is finished.
+	blk_mq_complete_request(rdma_cmd_ptr->io_rq, rdma_cmd_ptr->io_rq->errors); // meaning of parameters, error = 0?
+
+
+
+	//free this rdma_command
+	free_a_rdma_cmd_to_rdma_q(rdma_cmd_ptr);
+
+	return 0;
+}
 
 
 
 
 
+/**
+ * Copy data from I/O request to RDMA buffer.
+ * 
+ * [?] Can we aviod this data copy ??
+ * 
+ * [?] How many pages can be attached to each request??
+ * 		Each request can have multiple bio,
+ * 		Each bio can have multiple segments. 
+ * 
+ * [?] The size of rdma_ptr->rdma_buf is only 4K !!!!
+ * 
+ */
+void copy_data_to_rdma_buf(struct request *io_rq, struct rmem_rdma_command *rdma_ptr){
+
+	uint32_t 	num_seg		= io_rq->nr_phys_segments;	// 4K per segment.
+	struct bio 	*bio_ptr	= io_rq->bio; 				// the head of bio list.
+	uint32_t 	seg_ind;
+	char		*buf;
+
+	for(seg_ind=0; seg_ind< num_seg; ){
+
+		//debug
+		#ifdef DEBUG_RDMA_CLIENT
+		printk("%s, Copy %d pages(segment) from bio 0x%llx to 0x%llx \n",__func__, bio_ptr->bi_phys_segments,
+																		(unsigned long long)buf, 
+																		(unsigned long long)(rdma_ptr->rdma_buf + (seg_ind * PAGE_SIZE)) );
+		#endif
+
+		buf = bio_data(bio_ptr);
+		memcpy(rdma_ptr->rdma_buf + (seg_ind * PAGE_SIZE), buf, bio_ptr->bi_phys_segments * PAGE_SIZE  );
+
+		// next iteration
+		seg_ind+=bio_ptr->bi_phys_segments;
+		bio_ptr = bio_ptr->bi_next;
+	}
+	
+
+	//debug section
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, cuurent i/o write  request, 0x%llx, has [%u] pages. \n", __func__,(unsigned long long)io_rq ,num_seg);
+	#endif
+
+}
+
+
+
+
+/**
+ * Transfer I/O read request to 1-sided RDMA read.
+ * 
+ * 	For the i/o read request, it read data from file page and copy it into physical page. 
+ * 
+ */
+int post_rdma_read(struct rdma_session_context *rdma_session, struct request* io_rq, struct rmem_rdma_queue* rdma_q_ptr,  
+					struct remote_mapping_chunk *remote_chunk_ptr, uint64_t offse_within_chunk, uint64_t len ){
+
+	int ret = 0;
+	int cpu;
+	struct rmem_rdma_command *rdma_cmd_ptr;
+	struct ib_send_wr *bad_wr;
+
+	// Confirm this need chunk is mapped.
+  	// OR 
+	// [?] Request to bind this chunk. TO BE DONE.
+  	if(unlikely(remote_chunk_ptr->chunk_state != MAPPED)){
+    	ret =-1;
+    	printk("%s, Current chunk(rkey 0x%x) isn't mapped to remote memory serveer. \n", __func__, remote_chunk_ptr->remote_rkey);
+    	goto err;
+  	}
+
+
+	// Get a free WR from this rdma_queue
+	// And fille  i/o data into the RDMA wr.
+	rdma_cmd_ptr = get_a_free_rdma_cmd_from_rdma_q(rdma_q_ptr);
+	if(unlikely(rdma_cmd_ptr == NULL)){
+		printk(KERN_ERR "%s, No available rmem_rdma_command in this rdma_queue, 0x%llx \n", __func__, (unsigned long long)rdma_q_ptr);
+		goto err;
+	}
+
+
+	//
+	// read the data into this wr's RDMA buffer.
+	//
+
+	// Is this necessary ??
+	cpu = get_cpu();	// Stop context switch ??
+
+	rdma_cmd_ptr->io_rq				= io_rq;						// Reserve this i/o request as responds request. 
+	rdma_cmd_ptr->rdma_sq_wr.rkey	= remote_chunk_ptr->remote_rkey;
+	rdma_cmd_ptr->rdma_sq_wr.remote_addr	= remote_chunk_ptr->remote_addr + offse_within_chunk;
+	rdma_cmd_ptr->rdma_sq_wr.wr.opcode		= IB_WR_RDMA_READ;
+	rdma_cmd_ptr->rdma_sq_wr.wr.sg_list->length = len;				// length of the page, should a page alignment ?
+
+
+	//post the 1-sided RDMA write
+	// Use the global RDMA context, rdma_session_global
+	ret = ib_post_send(rdma_session->qp, (struct ib_send_wr*)&rdma_cmd_ptr->rdma_sq_wr, &bad_wr);
+	if(unlikely(ret)){
+		printk(KERN_ERR "%s, post 1-sided RDMA read failed, return value :. \n", __func__, ret);
+		goto err;
+	}
+
+	put_cpu();
+
+	// debug section
+	// print debug information here.
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, Requested data byte size of current i/o request : %llu \n", __func__, len);
+	#endif
 
 
 	return ret;
 
 err:
-	printk("%s, ERROR in %s \n",__func__);
+	printk(KERN_ERR " ERROR in %s. \n",__func__);
 	return ret;
+}
+
+
+
+/**
+ * 1-sided RDMA read is done.
+ * Read data back from the remote memory server.
+ * Put data back to I/O request and send it back to upper layer.
+ */
+int rdma_read_done(struct ib_wc *wc){
+
+    struct rmem_rdma_command 	*rdma_cmd_ptr;
+    struct request 				*io_rq;
+
+
+    //Get rdma_command from wr->wr_id
+    rdma_cmd_ptr	= (struct rmem_rdma_command *)(wc->wr_id);
+    if(unlikely(rdma_cmd_ptr == NULL)){
+        printk(KERN_ERR "%s, get NULL rmem_rdma_command from wc->wr_id \n", __func__);
+        return -1;
+    }
+
+    io_rq	= rdma_cmd_ptr->io_rq;
+    // Copy data to i/o request's physical pages
+	// [!!] Assume there is only 1 page in rdma_buf [!!]
+	memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, PAGE_SIZE );
+
+	// Notify the caller that the i/o request is finished.
+	blk_mq_complete_request(io_rq, io_rq->errors); // meaning of parameters, error = 0?
+
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, Read rquest, tag : %d finished. Return to caller. \n",__func__, io_rq->tag);
+	#endif
+
+	//free this rdma_command
+	free_a_rdma_cmd_to_rdma_q(rdma_cmd_ptr);
+
+	return 0;
+}
+
+
+
+//
+// [?]Do we need  to consider the concurent problems ??
+//		Every dispatch queue can only use its own rdma_queue.
+//
+//		https://lwn.net/Articles/695257/
+struct rmem_rdma_command* get_a_free_rdma_cmd_from_rdma_q(struct rmem_rdma_queue* rmda_q_ptr){
+
+	int rdma_cmd_ind  = 0;
+
+	// Fast path, use the slots pointed by rmem_rdma_queue->ptr.
+
+	// 					TO BE DONE.
+
+	//
+	// Slow path,  traverse the list to find one.
+	// Adjust the pointer.
+	// But must make sure that the slots behind the pointer, rmem_rdma_queue->ptr, are all available.
+	while(rdma_cmd_ind != rmda_q_ptr->length - 1){
+		if( atomic_read(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state)) != 0 ){  // 1 means available.
+			atomic_set(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state), 0);  // [??] This can't solve the concurry prolbems.
+			return &(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind]);  // move forward
+		}
+		rdma_cmd_ind++;
+	}
+
+//err:
+	printk(KERN_ERR "%s, Current rmem_rdma_queue[%d] : runs out rmem_rdma_cmd \n",__func__, rmda_q_ptr->q_index);
+	return NULL;
+}
+
+// Set this rdma_command free
+inline void free_a_rdma_cmd_to_rdma_q(struct rmem_rdma_command* rdma_cmd_ptr){
+	atomic_set(&(rdma_cmd_ptr->free_state), 1);
+	rdma_cmd_ptr->io_rq 	=	NULL;
 }
 
 
@@ -945,9 +1295,9 @@ err:
  * 		remote_addr : The actual virtual address of the mapped chunk ?
  * 
  */
-static int init_remote_chunk_list(struct rdma_session_context *rdma_session ){
+int init_remote_chunk_list(struct rdma_session_context *rdma_session ){
 
-	int ret;
+	int ret = 0;
 	uint32_t i;
 	uint32_t tmp_chunk_num; 
 	
@@ -983,7 +1333,7 @@ static int init_remote_chunk_list(struct rdma_session_context *rdma_session ){
  * 
  *	2) Attach the received chunks to the rdma_session_context->remote_mapping_chunk_list->remote_mapping_chunk[]
  */
-static void bind_remote_memory_chunks(struct rdma_session_context *rdma_session ){
+void bind_remote_memory_chunks(struct rdma_session_context *rdma_session ){
 
 	int i; 
 	uint32_t *chunk_ptr;
@@ -1014,6 +1364,9 @@ static void bind_remote_memory_chunks(struct rdma_session_context *rdma_session 
 		#endif
 
 	} // for
+
+	rdma_session->remote_chunk_list.chunk_num	= *chunk_ptr;  // Record the number of received chunks.
+
 }
 
 
@@ -1021,7 +1374,7 @@ static void bind_remote_memory_chunks(struct rdma_session_context *rdma_session 
 
 
 //
-// ###########  End of handling chunk management ################
+// <<<<<<<<<<<<<<<<<<<<<  End of handling chunk management <<<<<<<<<<<<<<<<<<<<<
 //
 
 
@@ -1031,7 +1384,7 @@ static void bind_remote_memory_chunks(struct rdma_session_context *rdma_session 
 
 
 //
-// ###########  Start of fields intialization ################
+// >>>>>>>>>>>>>>>  Start of fields intialization >>>>>>>>>>>>>>>
 //
 
 
@@ -1045,22 +1398,29 @@ static void bind_remote_memory_chunks(struct rdma_session_context *rdma_session 
  * Build the RDMA connection to remote memory server.
  * 	
  * Parameters
- * 		struct rdma_session_context **rdma_session_ptr, allocate & intialize the fields for RDMA driver context.
+ * 		rdma_session, RDMA controller/context.
+ * 			
  * 
  * More Exlanation:
  * 		[?] This function is too big, it's better to cut it into several pieces.
  * 
  */
-static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
+int octopus_RDMA_connect(struct rdma_session_context *rdma_session){
 
 	int ret;
-	struct rdma_session_context *rdma_session;
+//	struct rdma_session_context *rdma_session;
 	char 	ip[] = "10.0.0.2";
 	struct ib_recv_wr *bad_wr;
 
- 	//1) init rdma_session_context
-	*rdma_session_ptr 	= (struct rdma_session_context *)kzalloc(sizeof(struct rdma_session_context), GFP_KERNEL);
-	rdma_session		= *rdma_session_ptr;
+	//
+ 	// 1) init rdma_session_context
+	// 		rdma_session points a the global vatiable , rdma_seesion_global.
+	//		Initialize its fileds directly.
+
+	//*rdma_session_ptr 	= (struct rdma_session_context *)kzalloc(sizeof(struct rdma_session_context), GFP_KERNEL);
+	//rdma_session		= *rdma_session_ptr;
+
+
 	
 	// Register the IB device,
 	// Parameters
@@ -1076,7 +1436,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
   	// The number of  on-the-fly wr ?? every cores handle one ?? 
 	// This depth is used for CQ entry ? send/receive queue depth ?
   	rdma_session->txdepth = RDMA_READ_WRITE_QUEUE_DEPTH * num_online_cpus() + 1; //[?] What's this used for ? What's meaning of the value ?
-  
+	rdma_session->freed = 0;	// Flag of functions' called number. 
 
   	// Setup socket information
 	// Debug : for test, write the ip:port as 10.0.0.2:9400
@@ -1096,7 +1456,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 
   	//2) Resolve address(ip:port) and route to destination IB. 
    	ret = rdma_resolve_ip_to_ib_device(rdma_session);
-	if (ret){
+	if (unlikely(ret)){
 		printk (KERN_ERR "%s, bind socket error (addr or route resolve error)\n", __func__);
      	return ret;
    	}
@@ -1112,7 +1472,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	//
 	// Build the rdma queues.
   	ret = octopus_create_rdma_queues(rdma_session, rdma_session->cm_id);
-  	if(ret){
+  	if(unlikely(ret)){
 		printk(KERN_ERR "%s, Create rdma queues failed. \n", __func__);
   	}
 
@@ -1123,7 +1483,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	//rdma_session->mem = DMA;
 	// !! Do nothing for now.
   	ret = octopus_setup_buffers(rdma_session);
-	if(ret){
+	if(unlikely(ret)){
 		printk(KERN_ERR "%s, Bind DMA buffer error\n", __func__);
 	}
 	#ifdef DEBUG_RDMA_CLIENT
@@ -1135,7 +1495,7 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	// 4.2) 1-sided RDMA message intialization
 	//
 	ret = init_rdma_command_queue_list(rdma_session);
-	if(ret){
+	if(unlikely(ret)){
 		printk(KERN_ERR "%s, initialize 1-sided RDMA buffers error. \n",__func__);
 		goto err;
 	}
@@ -1201,24 +1561,43 @@ static int octopus_RDMA_connect(struct rdma_session_context **rdma_session_ptr){
 	// 		rdma_session_context : driver data
 	//		number of requeted chunks
 	ret = octupos_requset_for_chunk(rdma_session, 8);  // 8 chunk, 1 GB/chunk.
-	if(ret){
+	if(unlikely(ret)){
 		printk("%s, request for chunk failed.\n", __func__);
 		goto err;
 	}
 
-
+	// Sequence controll
+	wait_event_interruptible( rdma_session->sem, rdma_session->state == RECEIVED_CHUNKS );
 
 
 
 	// SECTION 2
 	// [!!] Connect to Disk Driver  [!!]
 	//
-	rdma_session->rmem_dev_ctrl = RMEM_init_disk_driver(&rmem_dev_ctl_global);
-	rdma_session->rmem_dev_ctrl = rdma_session;						// Record its associated rdma_session_context.
+	rdma_session->rmem_dev_ctrl = &rmem_dev_ctrl_global;
+	rmem_dev_ctrl_global.rdma_session = rdma_session;		// [!!]Do this before intialize Block Device.
+	ret =rmem_init_disk_driver(&rmem_dev_ctrl_global);
+	if(unlikely(ret)){
+		printk("%s, Initialize disk driver failed.\n", __func__);
+		goto err;
+	}
 
 
+
+	// SECTION 3, FINISHED.
+
+	// [!!] Only reach here afeter got STOP_ACK signal from remote memory server.
 	// Sequence controll - FINISH.
-	wait_event_interruptible( rdma_session->sem, rdma_session->state == TEST_DONE );
+	// Be carefull, this will lead to all the local variables collected.
+
+	// [?] Can we wait here with function : octopus_disconenct_and_collect_resource together?
+	//  NO ! https://stackoverflow.com/questions/16163932/multiple-threads-can-wait-on-a-semaphore-at-same-time
+	// Use  differeent semapore signal.
+	//wait_event_interruptible(rdma_session->sem, rdma_session->state == CM_DISCONNECT);
+
+	//wait_event_interruptible( rdma_session->sem, rdma_session->state == TEST_DONE );
+
+
 
 	printk("%s,Exit the main() function.\n", __func__);
 
@@ -1239,7 +1618,7 @@ err:
 
 
 /**
- * ######## Start of Resource Free Functions ##########
+ * >>>>>>>>>>>>>>> Start of Resource Free Functions >>>>>>>>>>>>>>>
  * 
  * For kernel space, there is no concept of multi-processes. 
  * There is only multilple kernel threads which share the same kernel virtual memory address.
@@ -1258,7 +1637,7 @@ err:
  * 	2) mapped remote chunks.
  * 
  */
-static void octopus_free_buffers(struct rdma_session_context *rdma_session) {
+void octopus_free_buffers(struct rdma_session_context *rdma_session) {
 	// Free the DMA buffer for 2-sided RDMA messages
 	if(rdma_session == NULL)
 		return;
@@ -1281,6 +1660,10 @@ static void octopus_free_buffers(struct rdma_session_context *rdma_session) {
 	if(rdma_session->remote_chunk_list.remote_chunk != NULL)
 		kfree(rdma_session->remote_chunk_list.remote_chunk);
 
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, Free RDMA buffers done. \n",__func__);
+	#endif
+
 }
 
 
@@ -1292,8 +1675,7 @@ static void octopus_free_buffers(struct rdma_session_context *rdma_session) {
  * 
  * 
  */
-static void octopus_free_rdma_structure(struct rdma_session_context *rdma_session)
-{
+void octopus_free_rdma_structure(struct rdma_session_context *rdma_session){
 
 	if (rdma_session == NULL)
 		return;
@@ -1335,16 +1717,31 @@ static void octopus_free_rdma_structure(struct rdma_session_context *rdma_sessio
 		#endif
 	}
 
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s, Free RDMA structures,cm_id,qp,cq,pd done. \n",__func__);
+	#endif
+
 }
 
 
 /**
  * The main entry of resource free.
  * 
+ * [x] 2 call site.
+ * 		1) Called by client, at the end of function, octopus_rdma_client_cleanup_module().
+ * 		2) Triggered by DISCONNECT CM event, in octopus_rdma_cm_event_handler()
+ * 
  */
-static int octopus_disconenct_and_collect_resource(struct rdma_session_context *rdma_session){
+int octopus_disconenct_and_collect_resource(struct rdma_session_context *rdma_session){
 
-	int ret;
+	int ret = 0;
+
+	if(unlikely(rdma_session->freed != 0)){
+		// already called by some thread,
+		// just return and wait.
+		return 0;
+	}
+	rdma_session->freed++;
 
 	// The RDMA connection maybe already disconnected.
 	if(rdma_session->state != CM_DISCONNECT){
@@ -1359,14 +1756,25 @@ static int octopus_disconenct_and_collect_resource(struct rdma_session_context *
 
 
 	#ifdef DEBUG_RDMA_CLIENT
-	printk("%s, RDMA disconnected, start free resoutce. \n", __func__);
+	printk("%s, RDMA disconnected, start to free resoutce. \n", __func__);
 	#endif
 
 	// Free resouces
 	octopus_free_buffers(rdma_session);
 	octopus_free_rdma_structure(rdma_session);
-	kfree(rdma_session);  // Free the RDMA context.
+
+	// If not allocated by kzalloc, no need to free it.
+	//kfree(rdma_session);  // Free the RDMA context.
 	
+
+	// DEBUG -- 
+	// Exit the main function first.
+	// wake_up_interruptible will cause context switch, 
+	// Just skip the code below this invocation.
+	//rdma_session_global.state = TEST_DONE;
+	//wake_up_interruptible(&(rdma_session_global.sem));
+
+
 	#ifdef DEBUG_RDMA_CLIENT
 	printk("%s, RDMA memory resouce freed. \n", __func__);
 	#endif
@@ -1376,17 +1784,26 @@ static int octopus_disconenct_and_collect_resource(struct rdma_session_context *
 
 
 /**
- * ######## End of  Resource Free Functions ##########
+ * <<<<<<<<<<<<<<<<<<<<< End of  Resource Free Functions <<<<<<<<<<<<<<<<<<<<<
  */
 
 
+
+
+//
+// Kernel Module registration functions.
+//
+
+
+
 // invoked by insmod 
-static int __init octopus_rdma_client_init_module(void)
+int __init octopus_rdma_client_init_module(void)
 {
-	printk("Init module, octopus - kernel level rdma client.. \n");
 
 	int ret = 0;
 	//printk("Do nothing for now. \n");
+	printk("%s, octopus - kernel level rdma client.. \n",__func__);
+
 
 	//main(0,NULL);
 
@@ -1401,7 +1818,7 @@ static int __init octopus_rdma_client_init_module(void)
 }
 
 // invoked by rmmod 
-static void __exit octopus_rdma_client_cleanup_module(void)
+void __exit octopus_rdma_client_cleanup_module(void)
 {
   	
 	int ret;
@@ -1419,13 +1836,23 @@ static void __exit octopus_rdma_client_cleanup_module(void)
 	//	rdma_disconnect(cb->cm_id);
 	//}
 
-
-	ret = octopus_disconenct_and_collect_resource(rdma_session_global);
-	if(ret){
+	ret = octopus_disconenct_and_collect_resource(&rdma_session_global);
+	if(unlikely(ret)){
 		printk(KERN_ERR "%s, octopus_disconenct_and_collect_resource  failed.\n",  __func__);
 	}
 
-	printk(" Remove Module DONE. \n");
+
+
+
+	//
+	// 2)  Free the Block Device resource
+	//
+	ret = octopus_free_block_devicce(&rmem_dev_ctrl_global);
+	if(unlikely(ret)){
+		printk(KERN_ERR "%s, free block device failed.\n",  __func__);
+	}
+
+	printk(" Remove Module OCTOPUS DONE. \n");
 
 	//
 	// [!!] This cause kernel crashes, not know the reason now.
@@ -1437,3 +1864,158 @@ static void __exit octopus_rdma_client_cleanup_module(void)
 
 module_init(octopus_rdma_client_init_module);
 module_exit(octopus_rdma_client_cleanup_module);
+
+
+
+
+
+
+
+/**
+ * >>>>>>>>>>>>>>> Start of Debug functions >>>>>>>>>>>>>>>
+ *
+ */
+
+
+
+/**
+ * The message type name, used for 2-sided RDMA communication.
+ */
+char* rdma_message_print(int message_id){
+	char* message_type_name;
+	message_type_name = (char*)kzalloc(32, GFP_KERNEL); // 32 bytes
+
+	switch(message_id){
+
+		case 1:
+			strcpy(message_type_name, "DONE");
+			break;
+
+		case 2:
+			strcpy(message_type_name, "GOT_CHUNKS");
+			break;
+
+		case 3:
+			strcpy(message_type_name, "GOT_SINGLE_CHUNK");
+			break;
+
+		case 4:
+			strcpy(message_type_name, "FREE_SIZE");
+			break;
+
+		case 5:
+			strcpy(message_type_name, "EVICT");
+			break;
+
+		case 6:
+			strcpy(message_type_name, "ACTIVITY");
+			break;
+
+		case 7:
+			strcpy(message_type_name, "STOP");
+			break;
+
+		case 8:
+			strcpy(message_type_name, "REQUEST_CHUNKS");
+			break;
+
+		case 9:
+			strcpy(message_type_name, "REQUEST_SINGLE_CHUNK");
+			break;
+
+		case 10:
+			strcpy(message_type_name, "QUERY");
+			break;
+
+		default:
+			strcpy(message_type_name, "ERROR Message Type");
+			break;
+	}
+
+	return message_type_name;
+}
+
+
+
+// Print the string of rdma_session_context state.
+// void rdma_session_context_state_print(int id){
+char* rdma_session_context_state_print(int id){
+
+	char* rdma_seesion_state_name;
+	rdma_seesion_state_name = (char*)kzalloc(32, GFP_KERNEL); // 32 bytes.
+
+	switch (id){
+
+		case 1 :
+			strcpy(rdma_seesion_state_name, "IDLE");
+			break;
+		case 2 :
+			strcpy(rdma_seesion_state_name, "CONNECT_REQUEST");
+			break;
+		case 3 :
+			strcpy(rdma_seesion_state_name, "ADDR_RESOLVED");
+			break;
+		case 4 :
+			strcpy(rdma_seesion_state_name, "ROUTE_RESOLVED");
+			break;
+		case 5 :
+			strcpy(rdma_seesion_state_name, "CONNECTED");
+			break;
+		case 6 :
+			strcpy(rdma_seesion_state_name, "FREE_MEM_RECV");
+			break;
+		case 7 :
+			strcpy(rdma_seesion_state_name, "RECEIVED_CHUNKS");
+			break;
+		case 8 :
+			strcpy(rdma_seesion_state_name, "RDMA_BUF_ADV");
+			break;
+		case 9 :
+			strcpy(rdma_seesion_state_name, "WAIT_OPS");
+			break;
+		case 10 :
+			strcpy(rdma_seesion_state_name, "RECV_STOP");
+			break;
+		case 11 :
+			strcpy(rdma_seesion_state_name, "RECV_EVICT");
+			break;
+		case 12 :
+			strcpy(rdma_seesion_state_name, "RDMA_WRITE_RUNNING");
+			break;
+		case 13 :
+			strcpy(rdma_seesion_state_name, "RDMA_READ_RUNNING");
+			break;
+		case 14 :
+			strcpy(rdma_seesion_state_name, "SEND_DONE");
+			break;
+		case 15 :
+			strcpy(rdma_seesion_state_name, "RDMA_DONE");
+			break;
+		case 16 :
+			strcpy(rdma_seesion_state_name, "RDMA_READ_ADV");
+			break;
+		case 17 :
+			strcpy(rdma_seesion_state_name, "RDMA_WRITE_ADV");
+			break;
+		case 18 :
+			strcpy(rdma_seesion_state_name, "CM_DISCONNECT");
+			break;
+		case 19 :
+			strcpy(rdma_seesion_state_name, "ERROR");
+			break;
+
+		default :
+			strcpy(rdma_seesion_state_name, "Un-defined state.");
+			break;
+	}
+
+	return rdma_seesion_state_name;
+}
+
+
+
+/**
+ * <<<<<<<<<<<<<<<<<<<<< End of Debug Functions <<<<<<<<<<<<<<<<<<<<<
+ */
+
+

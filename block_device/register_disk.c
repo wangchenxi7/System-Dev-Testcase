@@ -222,7 +222,7 @@ static int init_blk_mq_tag_set(struct rmem_device_control* rmem_dev_ctrl){
   tag_set->nr_hw_queues = rmem_dev_ctrl->nr_queues;   // hardware dispatch queue == software staging queue == avaible cores
   tag_set->queue_depth = rmem_dev_ctrl->queue_depth;  // [?] staging / dispatch queues have the same queue depth ?? or only staging queues have queue depth ?? 
   tag_set->numa_node  = NUMA_NO_NODE;
-  tag_set->cmd_size = sizeof(struct rmem_rdma_request);     // [?] Send a rdma_request with the normal i/o request to remote memory server ??
+  tag_set->cmd_size = sizeof(struct rmem_rdma_cmd);     // [?] Send a rdma_request with the normal i/o request to remote memory server ??
   tag_set->flags = BLK_MQ_F_SHOULD_MERGE;                   // [?]merge the i/o requets ??
   tag_set->driver_data = rmem_dev_ctrl;                     // The driver controller, the context 
 
@@ -602,10 +602,25 @@ out:
 	return ret;
 }
 
+
+
+
 // module function
 static void RMEM_cleanup_module(void){
 
 	unregister_blkdev(rmem_major_num, "rmempool");
+  if(rmem_dev_ctl_global.disk != NULL){
+    del_gendisk(rmem_dev_ctl_global.disk);
+    printk("%s, free gendisk done. \n",__func__);
+  }
+	
+  blk_mq_free_tag_set(&(rmem_dev_ctl_global.tag_set));
+  printk("%s, free tag_set done. \n",__func__);
+
+  if(rmem_dev_ctl_global.disk != NULL){
+	  put_disk(rmem_dev_ctl_global.disk);
+    printk("%s, put_disk gendisk done. \n",__func__);
+  }
 
 }
 
