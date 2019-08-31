@@ -137,13 +137,19 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   // TO BE DONE
   //
   #ifdef DEBUG_RDMA_CLIENT
-  int len = rq->nr_phys_segments;  // number of bio ??
+  u64 seg_num   = rq->nr_phys_segments;  // number of bio ??
+  u64 byte_len  = blk_rq_bytes(rq);
   if(rq_data_dir(rq) == WRITE){
-    printk("%s, dispatch_queue[%d], get a write request, tag : %d.  \n", __func__, hctx->queue_num, rq->tag);
+    printk("%s: dispatch_queue[%d], get a write request, tag : %d.  \n", __func__, hctx->queue_num, rq->tag);
   }else{
-    printk("%s, dispatch_queue[%d], get a read request, tag : %d.  \n", __func__, hctx->queue_num, rq->tag);
+    printk("%s: dispatch_queue[%d], get a read request, tag : %d.  \n", __func__, hctx->queue_num, rq->tag);
   }
-  printk("%s, number of bio (rq->nr_phys_segments) in the request:  %d \n ",__func__, len);
+  printk("%s: <%llu> segmetns, <%u> segments in fist bio , byte length : 0x%llx \n ",__func__, seg_num,rq->bio->bi_phys_segments, byte_len);
+
+  // printk("  :-->Forward write ?:[%d] request, tag: %d,  <%u> segments， <%u> segments of first bio ,\n",
+  //                                                                                       write_or_not, rq->tag, 
+  //                                                                                       rq->nr_phys_segments, 
+  //                                                                                       rq->bio->bi_phys_segments);
   #endif
 
 
@@ -242,13 +248,17 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   int ret = 0;
   int write_or_not        = (rq_data_dir(rq) == WRITE);
   uint64_t  start_addr    = blk_rq_pos(rq) << RMEM_LOGICAL_SECT_SHIFT;    // Calculate the start address of file page. sector_t is u64.
-  uint64_t  bytes_len     = blk_rq_bytes(rq);                             //[??] The request can NOT be contiguous !!! 
+  //uint64_t  bytes_len     = blk_rq_bytes(rq);                             //[??] The request can NOT be contiguous !!! 
+  u64       bytes_len     = PAGE_SIZE;  // For debug, read fixed 1 page.
   struct rdma_session_context  *rmda_session = rdma_q_ptr->rdma_session;
 
   
   struct remote_mapping_chunk   *remote_chunk_ptr;
   uint32_t  start_chunk_index   = start_addr >> CHUNK_SHIFT;   // 1GB/chunk in default.
-  uint32_t  end_chunk_index     = (start_addr + bytes_len - PAGE_SIZE) >> CHUNK_SHIFT;  // Assume start_chunk_index == end_chunk_index.
+  //uint32_t  end_chunk_index     = (start_addr + bytes_len - PAGE_SIZE) >> CHUNK_SHIFT;  // Assume start_chunk_index == end_chunk_index.
+  //debug
+  uint32_t  end_chunk_index = start_chunk_index;
+
   uint64_t  offset_within_chunk     =  start_addr & CHUNK_MASK; // get the file address offset within chunk.
 
 
@@ -271,7 +281,8 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   // Change all  the memory access to a specific chunk.
   // if(start_chunk_index == 7)
   //   start_chunk_index =1;
-  offset_within_chunk = 0x4000;
+  start_chunk_index   = 0;
+  offset_within_chunk = 0x1000;
   //end of debug
 
 
@@ -279,13 +290,13 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   remote_chunk_ptr  = &(rmda_session->remote_chunk_list.remote_chunk[start_chunk_index]);
 
   #ifdef DEBUG_RDMA_CLIENT
-  printk("%s: I/O request start_addr : 0x%llx, byte_length 0x%llx  --> \n ",__func__, start_addr, bytes_len);
-	printk("  :-->Forward write ?:[%d] request, tag: %d,  <%u> segments， <%u> segments of first bio ,\n",
-                                                                                        write_or_not, rq->tag, 
-                                                                                        rq->nr_phys_segments, 
-                                                                                        rq->bio->bi_phys_segments);
-  printk("  :--> remote chunk[%d], addr 0x%llx, offset 0x%llx \n",  start_chunk_index, remote_chunk_ptr->remote_addr,	offset_within_chunk);
+  
+  // printk("%s: TRANSFER TO RDMA MSG:  I/O request start_addr : 0x%llx, byte_length 0x%llx  --> \n ",__func__, start_addr, bytes_len);
 
+  printk("%s: TO RDMA MSG[%llu], requet start 0x%llx, remote chunk[%u], chunk_addr 0x%llx, offset 0x%llx, byte_len : 0x%llx  \n",  
+                                                      __func__ ,rmda_ops_count, start_addr, start_chunk_index, 
+                                                      remote_chunk_ptr->remote_addr,	offset_within_chunk, bytes_len);
+  rmda_ops_count++;
 	#endif
 
  
@@ -309,7 +320,6 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
     }
 
   }
-
 
 
 

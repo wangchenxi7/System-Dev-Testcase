@@ -42,7 +42,10 @@ MODULE_VERSION("1.0");
 struct rdma_session_context 	rdma_session_global;
 int online_cores;
 
-
+//debug
+u64	rmda_ops_count	= 0;
+u64	cq_notify_count	= 0;
+u64	cq_get_count	= 0;
 //
 // ############# Start of RDMA Communication (CM) event handler ########################
 //
@@ -337,7 +340,7 @@ void octopus_setup_message_wr(struct rdma_session_context *rdma_context)
 	// 1) Reserve a wr to receive RDMA message
 	rdma_context->recv_sgl.addr = rdma_context->recv_dma_addr;      
 	rdma_context->recv_sgl.length = sizeof(struct message);
-	if (rdma_context->local_dma_lkey){                            // check ?
+	if (rdma_context->qp->device->local_dma_lkey){                            // check ?
 		rdma_context->recv_sgl.lkey = rdma_context->qp->device->local_dma_lkey;
 
 		#ifdef DEBUG_RDMA_CLIENT
@@ -357,7 +360,7 @@ void octopus_setup_message_wr(struct rdma_session_context *rdma_context)
 	// 2) Reserve a wr
 	rdma_context->send_sgl.addr = rdma_context->send_dma_addr;
 	rdma_context->send_sgl.length = sizeof(struct message);
-	if (rdma_context->local_dma_lkey){
+	if (rdma_context->qp->device->local_dma_lkey){
 		rdma_context->send_sgl.lkey = rdma_context->qp->device->local_dma_lkey;
 	}else if (rdma_context->mem == DMA){
 		rdma_context->send_sgl.lkey = rdma_context->dma_mr->lkey;
@@ -533,6 +536,11 @@ void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kern
 		return;
 	}
 
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s: Receive cq[%llu] \n", __func__, cq_get_count++);
+	#endif
+
+
 	// Get notified by the arriving of next WC.
 	// The action is to trigger current function, rdma_cq_event_handler.
 	//
@@ -603,16 +611,16 @@ void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kern
 
 				 break;
 			case IB_WC_RDMA_READ:
+				 
+				#ifdef DEBUG_RDMA_CLIENT
+				printk("%s, Got a WC from CQ, IB_WC_RDMA_READ \n", __func__);
+				#endif
+				 
 				 ret = rdma_read_done( &wc);
 				 if (unlikely(ret)) {
 				 	printk(KERN_ERR "%s, Handle cq event, IB_WC_RDMA_READ, error \n", __func__);
 				 	goto err;
 				 }
-
-				#ifdef DEBUG_RDMA_CLIENT
-				printk("%s, Got a WC from CQ, IB_WC_RDMA_READ \n", __func__);
-				#endif
-
 				break;
 			case IB_WC_RDMA_WRITE:
 				ret = rdma_write_done(&wc);
@@ -636,9 +644,14 @@ void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kern
 		// Get notification for the next wc.
 		ret = ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);   
 		if (unlikely(ret)) {
-			printk(KERN_ERR "%s, request for cq completion notification failed \n",__func__);
+			printk(KERN_ERR "%s: request for cq completion notification failed \n",__func__);
 			goto err;
 		}
+		#ifdef DEBUG_RDMA_CLIENT
+		else{
+			printk("%s: cq_notify_count : %llu \n",__func__, cq_notify_count++);
+		}
+		#endif
 
 	} // poll 1 cq   
 	else{
@@ -675,9 +688,15 @@ int send_message_to_remote(struct rdma_session_context *rdma_session, int messge
 
 	ret = ib_post_send(rdma_session->qp, &rdma_session->sq_wr, &bad_wr);
 	if (ret) {
-		printk(KERN_ERR "%s, BIND_SINGLE MSG send error %d\n", __func__, ret);
+		printk(KERN_ERR "%s: BIND_SINGLE MSG send error %d\n", __func__, ret);
 		return ret;
 	}
+	#ifdef DEBUG_RDMA_CLIENT
+	else{
+		printk("%s: 2-sided RDMA message[%llu] send. \n",__func__,rmda_ops_count++);
+	}
+	#endif
+
 	return ret;	
 }
 
@@ -820,6 +839,11 @@ int octupos_requset_for_chunk(struct rdma_session_context* rdma_session, int num
 		printk(KERN_ERR "%s, Post 2-sided message to receive data failed.\n", __func__);
 		goto err;
 	}
+	#ifdef DEBUG_RDMA_CLIENT
+	else{
+		printk("%s: 2-sided RDMA message[%llu] recv. \n",__func__,rmda_ops_count++);
+	}
+	#endif
 
 	// Post the send WR
 	ret = send_message_to_remote(rdma_session, num_chunk == 1 ? REQUEST_SINGLE_CHUNK : REQUEST_CHUNKS, num_chunk * CHUNK_SIZE_GB );
@@ -1234,34 +1258,64 @@ err:
  * Put data back to I/O request and send it back to upper layer.
 */
 int rdma_read_done(struct ib_wc *wc){
-
+	int ret = 0;
     struct rmem_rdma_command 	*rdma_cmd_ptr;
     struct request 				*io_rq;
+	u64 received_byte_len	= 0;  // For debug.
 
 
     //Get rdma_command from wr->wr_id
     rdma_cmd_ptr	= (struct rmem_rdma_command *)(wc->wr_id);
     if(unlikely(rdma_cmd_ptr == NULL)){
         printk(KERN_ERR "%s, get NULL rmem_rdma_command from wc->wr_id \n", __func__);
-        return -1;
+		ret = -1;
+        goto err;
     }
 
     io_rq	= rdma_cmd_ptr->io_rq;
     // Copy data to i/o request's physical pages
 	// [!!] Assume there is only 1 page in rdma_buf [!!]
-	memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, PAGE_SIZE );
+	//memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, PAGE_SIZE );
+	// Assume that there is only 1 bio.
+	//received_byte_len = blk_rq_bytes(io_rq);
+
+
+	#ifdef DEBUG_RDMA_CLIENT
+	printk("%s: Copy %u bytes from RDMA buffer to request. \n",__func__,  blk_rq_bytes(io_rq));
+	
+	// Confirm only one bio within the request
+	if( io_rq->nr_phys_segments  != io_rq->bio->bi_phys_segments ){
+		printk(KERN_ERR "%s: Leave out some data ! \n",__func__);
+		ret = -1;
+		goto err;
+	}
+
+	// Check the data length
+	if( io_rq->nr_phys_segments * PAGE_SIZE <= blk_rq_bytes(io_rq) ){
+		//received_byte_len = io_rq->nr_phys_segments * PAGE_SIZE;
+		printk(KERN_ERR "%s, blk_rq_bytes(io_rq) > io_rq->nr_phys_segments*PAGE_SIZE, reseet size. \n",__func__);
+	}
+	#endif
+
+	//
+	// [!!] received_byte_len = seg * page will cause kernel getting stuck.
+	//		received_byte_len = blk_rq_bytes(io_rq) will cause crash.
+	//		received_byte_len = 0 for debug. 
+	//
+	memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, received_byte_len );
 
 	// Notify the caller that the i/o request is finished.
 	blk_mq_complete_request(io_rq, io_rq->errors); // meaning of parameters, error = 0?
 
 	#ifdef DEBUG_RDMA_CLIENT
-	printk("%s, Read rquest, tag : %d finished. Return to caller. \n",__func__, io_rq->tag);
+	printk("%s: 1-sided rdma_read finished. requset->tag : %d  \n\n",__func__, io_rq->tag);
 	#endif
 
 	//free this rdma_command
 	free_a_rdma_cmd_to_rdma_q(rdma_cmd_ptr);
 
-	return 0;
+err:
+	return ret;
 }
 
 
@@ -1377,6 +1431,14 @@ void bind_remote_memory_chunks(struct rdma_session_context *rdma_session ){
 	chunk_ptr = &(rdma_session->remote_chunk_list.chunk_ptr);
 	// Traverse the receive WR to find all the got chunks.
 	for(i = 0; i < MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB; i++ ){
+		
+		#ifdef DEBUG_RDMA_CLIENT
+		if( *chunk_ptr >= rdma_session->remote_chunk_list.chunk_num){
+			printk(KERN_ERR "%s, Get too many chunks. \n", __func__);
+			break;
+		}
+		#endif
+		
 		if(rdma_session->recv_buf->rkey[i]){
 			// Sent chunk, attach to current chunk_list's tail.
 			rdma_session->remote_chunk_list.remote_chunk[*chunk_ptr].remote_rkey = ntohl(rdma_session->recv_buf->rkey[i]);
@@ -1391,13 +1453,6 @@ void bind_remote_memory_chunks(struct rdma_session_context *rdma_session ){
 
 			(*chunk_ptr)++;
 		}
-
-		#ifdef DEBUG_RDMA_CLIENT
-		if( *chunk_ptr >= rdma_session->remote_chunk_list.chunk_num){
-			printk("%s, Get too many chunks. \n", __func__);
-			break;
-		}
-		#endif
 
 	} // for
 
@@ -1544,11 +1599,20 @@ int octopus_RDMA_connect(struct rdma_session_context *rdma_session){
 	// Post a recv wr to wait for the FREE_SIZE RDMA message, sent from remote memory server.
 	//
 	ret = ib_post_recv(rdma_session->qp, &rdma_session->rq_wr, &bad_wr); 
+	if(ret){
+		printk(KERN_ERR "%s: post a 2-sided RDMA message error \n",__func__);
+		goto err;
+	}	
+	#ifdef DEBUG_RDMA_CLIENT
+	else{
+		printk("%s: 2-sided RDMA message[%llu] send. \n",__func__, rmda_ops_count++);
+	}
+	#endif
 
 	// Build RDMA connection.
 	ret = octopus_connect_remote_memory_server(rdma_session);
 	if(ret){
-		printk(KERN_ERR "%s,Connect to remote server error \n", __func__);
+		printk(KERN_ERR "%s: Connect to remote server error \n", __func__);
 		goto err;
 	}
 	#ifdef DEBUG_RDMA_CLIENT
@@ -1574,6 +1638,11 @@ int octopus_RDMA_connect(struct rdma_session_context *rdma_session){
 		printk(KERN_ERR "%s, ib_create_cq failed\n", __func__);
 		goto err;
 	}
+	#ifdef DEBUG_RDMA_CLIENT 
+	else{
+		printk("%s: cq_notify_count : %llu \n",__func__, cq_notify_count++);
+	}
+	#endif
 
 	// Sequence controll
 	wait_event_interruptible( rdma_session->sem, rdma_session->state == FREE_MEM_RECV );

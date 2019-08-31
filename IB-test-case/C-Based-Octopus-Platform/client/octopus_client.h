@@ -406,7 +406,7 @@ struct rdma_session_context {
 	struct ib_mr 		*dma_mr;  // [?] receive mr to be registered ??
   	enum mem_type 		mem;		//  only when mem == DMA, we need allocate and intialize dma_mr.
 	    // [?] How to set this value ?
-	int 				local_dma_lkey;		/* use 0 for lkey */  //[??] No one touch this value, it keeps 0.
+	//int 				local_dma_lkey;		/* use 0 for lkey */  //[??] No one touch this value, it keeps 0.
 
 
 
@@ -616,6 +616,10 @@ extern int rmem_major_num;
 extern int online_cores;		// Both dispatch queues, rdma_queues equal to this online_cores.
 
 
+//debug
+extern u64	rmda_ops_count;
+extern u64	cq_notify_count;
+extern u64	cq_get_count;
 
 
 
