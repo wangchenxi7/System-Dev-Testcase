@@ -608,12 +608,17 @@ out:
 // module function
 static void RMEM_cleanup_module(void){
 
-	unregister_blkdev(rmem_major_num, "rmempool");
+
   if(rmem_dev_ctl_global.disk != NULL){
     del_gendisk(rmem_dev_ctl_global.disk);
     printk("%s, free gendisk done. \n",__func__);
   }
 	
+  if(rmem_dev_ctl_global.queue != NULL){
+    blk_cleanup_queue(rmem_dev_ctl_global.queue);
+    printk("%s, free and close dispatch queue. \n",__func__);
+  }
+
   blk_mq_free_tag_set(&(rmem_dev_ctl_global.tag_set));
   printk("%s, free tag_set done. \n",__func__);
 
@@ -621,6 +626,8 @@ static void RMEM_cleanup_module(void){
 	  put_disk(rmem_dev_ctl_global.disk);
     printk("%s, put_disk gendisk done. \n",__func__);
   }
+
+  unregister_blkdev(rmem_major_num, "rmempool");
 
 }
 

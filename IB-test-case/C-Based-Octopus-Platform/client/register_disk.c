@@ -35,6 +35,8 @@
 
 int rmem_major_num;
 struct rmem_device_control  	rmem_dev_ctrl_global;
+u64 RMEM_SIZE_IN_PHY_SECT = 	ONE_GB / RMEM_PHY_SECT_SIZE * MAX_REMOTE_MEMORY_SIZE_GB;    // 16M physical sector, 8GB.
+
 
 /**
  * 1) Define device i/o operation
@@ -87,8 +89,8 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int h
   //rdma_q_ptr->length  = rmem_dev_ctrl->queue_depth; // Delayed intialization of rdma queue.
   #ifdef DEBUG_RDMA_CLIENT
   // Is thre any kernel defined check ?
-  if(rdma_q_ptr->length != rmem_dev_ctrl->queue_depth){
-    printk("%s, rdma_q_ptr->length != rmem_dev_ctrl->queue_depth \n", __func__);
+  if(rdma_q_ptr->rdma_queue_depth != rmem_dev_ctrl->queue_depth){
+    printk("%s, rdma_q_ptr->rdma_queue_depth != rmem_dev_ctrl->queue_depth \n", __func__);
     goto err;
   }
   #endif
@@ -145,12 +147,14 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   #endif
 
 
+  #ifndef DEBUG_BD_RDMA_SEPARATELY 
   // Transfer I/O request to 1-sided RDMA messages.
   itnernal_ret = transfer_requet_to_rdma_message(rdma_q_ptr, rq);
   if(unlikely(itnernal_ret)){
       printk(KERN_ERR "%s, transfer_requet_to_rdma_message is failed. \n", __func__);
       goto err;
   }
+  #endif
 
   // Start the reqeust 
   // [x] Inform some hardware, we are going to handle this request
@@ -169,7 +173,7 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   // [?] difference between request->request_queue and rmem_dev_ctl_global->request_queue ? Should be the same one ?
   //
 
-
+  #ifdef DEBUG_BD_RDMA_SEPARATELY
   // Below is only for debug.
   // Finish of the i/o request 
   // [x] Let's just return a NULL data back .
@@ -177,7 +181,9 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   // The content is correct OR not is checked by the applcations.
   //  
   //
-  //blk_mq_complete_request(rq,rq->errors);  // use 0 or rq->errors
+  blk_mq_complete_request(rq,rq->errors);  // use 0 or rq->errors
+  #endif
+
 
   return BLK_MQ_RQ_QUEUE_OK;
 
@@ -235,8 +241,8 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
 
   int ret = 0;
   int write_or_not        = (rq_data_dir(rq) == WRITE);
-  sector_t  start_addr    = blk_rq_pos(rq) << RMEM_SECT_SHIFT;   // Calculate the start address of file page. sector_t is u64.
-  uint64_t  bytes_len     = blk_rq_bytes(rq);
+  uint64_t  start_addr    = blk_rq_pos(rq) << RMEM_LOGICAL_SECT_SHIFT;    // Calculate the start address of file page. sector_t is u64.
+  uint64_t  bytes_len     = blk_rq_bytes(rq);                             //[??] The request can NOT be contiguous !!! 
   struct rdma_session_context  *rmda_session = rdma_q_ptr->rdma_session;
 
   
@@ -246,17 +252,43 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   uint64_t  offset_within_chunk     =  start_addr & CHUNK_MASK; // get the file address offset within chunk.
 
 
+  //debug
+  // printk("%s: blk_rq_pos(rq) : 0x%llx, RMEM_LOGICAL_SECT_SHIFT: 0x%llx, CHUNK_SHIFT : 0x%llx, CHUNK_MASK: 0x%llx \n",__func__,
+  //                                        start_addr, (u64)RMEM_LOGICAL_SECT_SHIFT, (u64)CHUNK_SHIFT, (u64)CHUNK_MASK);
+
+
   #ifdef DEBUG_RDMA_CLINET 
   // Assume all the read/write hits in the same chunk.
   if(start_chunk_index!= end_chunk_index){
     ret =-1;
-    printk("%s, start_chunk_index!= end_chunk_index \n", __func__);
+    printk(KERN_ERR "%s, start_chunk_index!= end_chunk_index \n", __func__);
     goto err;
   }
   #endif
 
+
+  //debug
+  // Change all  the memory access to a specific chunk.
+  // if(start_chunk_index == 7)
+  //   start_chunk_index =1;
+  offset_within_chunk = 0x4000;
+  //end of debug
+
+
   //Get the remote_chunk information
   remote_chunk_ptr  = &(rmda_session->remote_chunk_list.remote_chunk[start_chunk_index]);
+
+  #ifdef DEBUG_RDMA_CLIENT
+  printk("%s: I/O request start_addr : 0x%llx, byte_length 0x%llx  --> \n ",__func__, start_addr, bytes_len);
+	printk("  :-->Forward write ?:[%d] request, tag: %d,  <%u> segments， <%u> segments of first bio ,\n",
+                                                                                        write_or_not, rq->tag, 
+                                                                                        rq->nr_phys_segments, 
+                                                                                        rq->bio->bi_phys_segments);
+  printk("  :--> remote chunk[%d], addr 0x%llx, offset 0x%llx \n",  start_chunk_index, remote_chunk_ptr->remote_addr,	offset_within_chunk);
+
+	#endif
+
+ 
 
   // Build the 1-sided RDMA read/write.
   if(write_or_not){
@@ -505,7 +537,7 @@ static struct block_device_operations rmem_device_ops = {
 int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
 
   int ret = 0;
-  sector_t remote_mem_size = RMEM_SIZE_IN_BYTES;
+  sector_t remote_mem_sector_num = RMEM_SIZE_IN_PHY_SECT; // number of physical sector
 
   rmem_dev_ctrl->disk = alloc_disk_node(1, NUMA_NO_NODE); // minors =1, at most have one partition.
   if(unlikely(!rmem_dev_ctrl->disk)){
@@ -521,8 +553,9 @@ int init_gendisk(struct rmem_device_control* rmem_dev_ctrl ){
   rmem_dev_ctrl->disk->private_data = rmem_dev_ctrl;    // Driver controller/context. Reserved for disk driver.
   memcpy(rmem_dev_ctrl->disk->disk_name, rmem_dev_ctrl->dev_name, DEVICE_NAME_LEN);
 
-  sector_div(remote_mem_size, RMEM_LOGICAL_SECT_SIZE);    // remote_mem_size /=RMEM_SECT_SIZE, return remote_mem_size%RMEM_SECT_SIZE 
-	set_capacity(rmem_dev_ctrl->disk, remote_mem_size);     // size is in remote file state->size, add size info into block device
+  // RMEM_SIZE_IN_PHY_SECT is just the number of physical sector already.
+  //sector_div(remote_mem_sector_num, RMEM_LOGICAL_SECT_SIZE);    // remote_mem_size /=RMEM_SECT_SIZE, return remote_mem_size%RMEM_SECT_SIZE 
+	set_capacity(rmem_dev_ctrl->disk, remote_mem_sector_num);     // size is in remote file state->size, add size info into block device
  
  
   // Register Block Device through gendisk(->partition)
@@ -750,13 +783,17 @@ int octopus_free_block_devicce(struct rmem_device_control * rmem_dev_ctrl ){
 
   if(rmem_dev_ctrl!=NULL){
 
-    unregister_blkdev(rmem_dev_ctrl->major, rmem_dev_ctrl->dev_name);
 
     if(likely(rmem_dev_ctrl->disk != NULL)){
       del_gendisk(rmem_dev_ctrl->disk);
       printk("%s, free gendisk done. \n",__func__);
     }
 	
+    if(likely(rmem_dev_ctrl->queue != NULL)){
+      blk_cleanup_queue(rmem_dev_ctrl->queue);
+      printk("%s, free and close dispatch queue. \n",__func__);
+    }
+
     blk_mq_free_tag_set(&(rmem_dev_ctrl->tag_set));
     printk("%s, free tag_set done. \n",__func__);
 
@@ -764,6 +801,8 @@ int octopus_free_block_devicce(struct rmem_device_control * rmem_dev_ctrl ){
 	    put_disk(rmem_dev_ctrl->disk);
       printk("%s, put_disk gendisk done. \n",__func__);
     }
+
+    unregister_blkdev(rmem_dev_ctrl->major, rmem_dev_ctrl->dev_name);
 
     printk("%s, Free Block Device, %s, DONE. \n",__func__, rmem_dev_ctrl->dev_name);
 

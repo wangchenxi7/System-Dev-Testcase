@@ -36,7 +36,7 @@
 // Disk hardware information
 //
 #define RMEM_PHY_SECT_SIZE				512 	// physical sector seize, used by driver (to disk).
-#define RMEM_LOGICAL_SECT_SIZE			4096	// logical sector seize, used by kernel (to i/o).
+#define RMEM_LOGICAL_SECT_SIZE			512	// logical sector seize, used by kernel (to i/o).
 //#define RMEM_REQUEST_QUEUE_NUM     	2  		// for debug, use the online_cores
 #define RMEM_QUEUE_DEPTH           		16  	// [?]  1 - (-1U), what's the good value ? 
 #define RMEM_QUEUE_MAX_SECT_SIZE		1024 	// The max number of sectors per request, /sys/block/sda/queue/max_hw_sectors_kb is 256
@@ -47,11 +47,11 @@
 //
 // RDMA related macros  
 //
-#define RMEM_SIZE_IN_BYTES  			(unsigned long)1024*1024*1024*8  // 8GB
+#define ONE_GB							1024*1024*1024	// byte size of ONE GB
 #define CHUNK_SIZE_GB					1		// Must be a number of 2 to power N.
-#define MAX_REMOTE_MEMORY_SIZE_GB 		32 		// The max remote memory size of current client. For 1 remote memory server, this value eaquals to the remote memory size.
+#define MAX_REMOTE_MEMORY_SIZE_GB 		8 		// The max remote memory size of current client. For 1 remote memory server, this value eaquals to the remote memory size.
 #define RDMA_READ_WRITE_QUEUE_DEPTH		16		// [?] connection with the Disk dispatch queue depth ??
-
+extern u64 RMEM_SIZE_IN_PHY_SECT;
 
 // 1-sieded RDMA Macros
 
@@ -92,18 +92,20 @@
 #define CHUNK_SHIFT			(GB_SHIFT + ilog2(CHUNK_SIZE_GB))	 // Used to calculate the chunk index in Client (File chunk). Initialize it before using.
 #define	CHUNK_MASK			((1 << CHUNK_SHIFT)-1)
 
-#define RMEM_SECT_SHIFT		(ilog2(RMEM_LOGICAL_SECT_SIZE))  // the power to 2, shift bits.
+#define RMEM_LOGICAL_SECT_SHIFT		(ilog2(RMEM_LOGICAL_SECT_SIZE))  // the power to 2, shift bits.
 
 //
 // File address to Remote virtual memory address translation
 //
 
 
-
+//
 // Enable debug information printing 
+//
 #define DEBUG_RDMA_CLIENT 1 
-
-
+//#define DEBUG_RDMA_CLINET_DETAIL 1
+//#define DEBUG_BD_RDMA_SEPARATELY 1			// Build and install BD & RDMA modules, but not connect them.
+//#define DEBUG_RDMA_ONLY		   1			// Only build and install RDMA modules.
 
 // from kernel 
 /*  host to network long long
@@ -329,8 +331,8 @@ struct rmem_rdma_command{
  */
 struct rmem_rdma_queue {
 	struct rmem_rdma_command		*rmem_rdma_cmd_list;	// one-sided RDMA read/write message list, one for each i/o request
-	uint32_t 						length;
-	uint32_t						cmd_ptr;					// Manage the rmem_rdma_cmd_list in a bump pointer way.
+	uint32_t 						rdma_queue_depth;		// length of the rmem_rdma_comannd_list.
+	uint32_t						cmd_ptr;				// Manage the rmem_rdma_cmd_list in a bump pointer way.
 	uint32_t						q_index;				// Assign the hw_index in blk_mq_ops->.init_hctx.
 
 	//struct rmem_device_control		*rmem_dev_ctrl;  		// point to the device driver/context
@@ -586,8 +588,8 @@ int 	octopus_free_block_devicce(struct rmem_device_control * rmem_dev_ctl );
 //
 char* rdma_message_print(int message_id);
 char* rdma_session_context_state_print(int id);
-
-
+char* rdma_cm_message_print(int cm_message_id);
+char* rdma_wc_status_name(int wc_status_id);
 
 /** 
  * ########## Declare some global varibles ##########
