@@ -522,6 +522,9 @@ int octopus_connect_remote_memory_server(struct rdma_session_context *rdma_sessi
  * 
  * [?] For the RDMA read/write, is  there also a WC to acknowledge the finish of this ??
  * 
+ * 
+ * 
+ * 
  */
 void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kernel_cb->cq;  ctx : cq->context, just the kernel_cb
 {
@@ -547,9 +550,28 @@ void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kern
 	// I tink it's better to call this mannual.
 	//ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);
 
+
+		// Notify_cq, poll_cq are all both one-shot
+		// Get notification for the next wc.
+		ret = ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);   
+		if (unlikely(ret)) {
+			printk(KERN_ERR "%s: request for cq completion notification failed \n",__func__);
+			goto err;
+		}
+		#ifdef DEBUG_RDMA_CLIENT
+		else{
+			printk("%s: cq_notify_count : %llu , wait for next cq_event \n",__func__, cq_notify_count++);
+		}
+		#endif
+
 	// If current function, rdma_cq_event_handler, is invoked, a WC is on the CQE.
 	// Get the SIGNAL, WC, by invoking ib_poll_cq.
-	if(likely( (ret = ib_poll_cq(rdma_session->cq, 1, &wc)) == 1  )) {   //ib_poll_cq, get "one" wc from cq.
+	//
+	//drivers/infiniband/hw/mlx4/main.c:2707:	ibdev->ib_dev.poll_cq		= mlx4_ib_poll_cq;
+	//	ib_poll_cq is cq->device->poll_cq
+
+	//if(likely( (ret = ib_poll_cq(rdma_session->cq, 1, &wc)) == 1  )) {   //ib_poll_cq, get "one" wc from cq.
+	while(likely( (ret = ib_poll_cq(rdma_session->cq, 1, &wc)) == 1  )) {
 		if (wc.status != IB_WC_SUCCESS) {   		// IB_WC_SUCCESS == 0
 			// if (wc.status == IB_WC_WR_FLUSH_ERR) {
 			// 	printk(KERN_ERR "%s, cq flushed\n", __func__);
@@ -642,22 +664,22 @@ void octopus_cq_event_handler(struct ib_cq * cq, void *rdma_ctx)    // cq : kern
 		//
 		// Notify_cq, poll_cq are all both one-shot
 		// Get notification for the next wc.
-		ret = ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);   
-		if (unlikely(ret)) {
-			printk(KERN_ERR "%s: request for cq completion notification failed \n",__func__);
-			goto err;
-		}
-		#ifdef DEBUG_RDMA_CLIENT
-		else{
-			printk("%s: cq_notify_count : %llu \n",__func__, cq_notify_count++);
-		}
-		#endif
+		// ret = ib_req_notify_cq(rdma_session->cq, IB_CQ_NEXT_COMP);   
+		// if (unlikely(ret)) {
+		// 	printk(KERN_ERR "%s: request for cq completion notification failed \n",__func__);
+		// 	goto err;
+		// }
+		// #ifdef DEBUG_RDMA_CLIENT
+		// else{
+		// 	printk("%s: cq_notify_count : %llu , wait for next cq_event \n",__func__, cq_notify_count++);
+		// }
+		// #endif
 
-	} // poll 1 cq   
-	else{
-		printk(KERN_ERR "%s, poll error %d\n", __func__, ret);
-		goto err;
-	}
+	} // poll 1 cq   in a loop.
+	// else{
+	// 	printk(KERN_ERR "%s, poll error %d\n", __func__, ret);
+	// 	goto err;
+	// }
 
 	return;
 err:
@@ -1186,7 +1208,7 @@ void copy_data_to_rdma_buf(struct request *io_rq, struct rmem_rdma_command *rdma
  * 
  */
 int post_rdma_read(struct rdma_session_context *rdma_session, struct request* io_rq, struct rmem_rdma_queue* rdma_q_ptr,  
-					struct remote_mapping_chunk *remote_chunk_ptr, uint64_t offse_within_chunk, uint64_t len ){
+					struct remote_mapping_chunk *remote_chunk_ptr, uint64_t offset_within_chunk, uint64_t len ){
 
 	int ret = 0;
 	int cpu;
@@ -1221,7 +1243,7 @@ int post_rdma_read(struct rdma_session_context *rdma_session, struct request* io
 
 	rdma_cmd_ptr->io_rq				= io_rq;						// Reserve this i/o request as responds request. 
 	rdma_cmd_ptr->rdma_sq_wr.rkey	= remote_chunk_ptr->remote_rkey;
-	rdma_cmd_ptr->rdma_sq_wr.remote_addr	= remote_chunk_ptr->remote_addr + offse_within_chunk;
+	rdma_cmd_ptr->rdma_sq_wr.remote_addr	= remote_chunk_ptr->remote_addr + offset_within_chunk;
 	rdma_cmd_ptr->rdma_sq_wr.wr.opcode		= IB_WR_RDMA_READ;
 	rdma_cmd_ptr->rdma_sq_wr.wr.sg_list->length = len;				// length of the page, should a page alignment ?
 
@@ -1281,11 +1303,11 @@ int rdma_read_done(struct ib_wc *wc){
 
 
 	#ifdef DEBUG_RDMA_CLIENT
-	printk("%s: Copy %u bytes from RDMA buffer to request. \n",__func__,  blk_rq_bytes(io_rq));
+	printk("%s: Should copy 0x%x bytes from RDMA buffer to request. \n",__func__,  blk_rq_bytes(io_rq));
 	
 	// Confirm only one bio within the request
 	if( io_rq->nr_phys_segments  != io_rq->bio->bi_phys_segments ){
-		printk(KERN_ERR "%s: Leave out some data ! \n",__func__);
+		printk(KERN_ERR "%s: Leave out some bio ! \n",__func__);
 		ret = -1;
 		goto err;
 	}
@@ -1293,7 +1315,7 @@ int rdma_read_done(struct ib_wc *wc){
 	// Check the data length
 	if( io_rq->nr_phys_segments * PAGE_SIZE <= blk_rq_bytes(io_rq) ){
 		//received_byte_len = io_rq->nr_phys_segments * PAGE_SIZE;
-		printk(KERN_ERR "%s, blk_rq_bytes(io_rq) > io_rq->nr_phys_segments*PAGE_SIZE, reseet size. \n",__func__);
+		printk(KERN_ERR "%s, blk_rq_bytes(io_rq) > io_rq->nr_phys_segments*PAGE_SIZE,need to reseet size. \n",__func__);
 	}
 	#endif
 
@@ -1308,7 +1330,9 @@ int rdma_read_done(struct ib_wc *wc){
 	blk_mq_complete_request(io_rq, io_rq->errors); // meaning of parameters, error = 0?
 
 	#ifdef DEBUG_RDMA_CLIENT
-	printk("%s: 1-sided rdma_read finished. requset->tag : %d  \n\n",__func__, io_rq->tag);
+	printk("%s: 1-sided rdma_read finished. requset->tag : %d <<<<<  \n\n",__func__, io_rq->tag);
+	//
+
 	#endif
 
 	//free this rdma_command
