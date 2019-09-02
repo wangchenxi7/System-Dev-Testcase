@@ -126,7 +126,7 @@ static int rmem_init_hctx(struct blk_mq_hw_ctx *hctx, void *data, unsigned int h
 static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_data *bd){
 
   int itnernal_ret = 0;
-
+  int cpu;
   // Get the corresponding RDMA queue of this dispatch queue.
   // blk_mq_hw_ctx->driver_data  stores the RDMA connection context.
   struct rmem_rdma_queue* rdma_q_ptr = hctx->driver_data;   
@@ -153,13 +153,19 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   #endif
 
 
+
   #ifndef DEBUG_BD_RDMA_SEPARATELY 
+
+  cpu = get_cpu();
+
   // Transfer I/O request to 1-sided RDMA messages.
   itnernal_ret = transfer_requet_to_rdma_message(rdma_q_ptr, rq);
   if(unlikely(itnernal_ret)){
       printk(KERN_ERR "%s, transfer_requet_to_rdma_message is failed. \n", __func__);
       goto err;
   }
+
+  put_cpu();
   #endif
 
   // Start the reqeust 
@@ -274,11 +280,11 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
   // Assume all the read/write hits in the same chunk.
   if(start_chunk_index!= end_chunk_index){
     ret =-1;
-    printk(KERN_ERR "%s: reqiest start_add:0x%llx, byte_len:0x%llx \n",__func__, start_addr,bytes_len);
-    printk(KERN_ERR "%s: start_chunk_index[%u] != end_chunk_index[%u] \n", __func__,start_chunk_index, end_chunk_index);
+    printk(KERN_ERR "%s, request start_add:0x%llx, byte_len:0x%llx \n",__func__, start_addr,bytes_len);
+    printk(KERN_ERR "%s, start_chunk_index[%u] != end_chunk_index[%u] \n", __func__,start_chunk_index, end_chunk_index);
     
     bytes_len = rq->nr_phys_segments * PAGE_SIZE;
-    printk(KERN_ERR "%s: reset byte_len(0x%llx)  to rq->nr_phys_segments * PAGE_SIZE:0x%llx \n",__func__, debug_byte_len, bytes_len);
+    printk(KERN_ERR "%s, reset byte_len(0x%llx)  to rq->nr_phys_segments * PAGE_SIZE:0x%llx \n",__func__, debug_byte_len, bytes_len);
     end_chunk_index     = (start_addr + bytes_len) >> CHUNK_SHIFT;
 
     if(start_chunk_index!= end_chunk_index){

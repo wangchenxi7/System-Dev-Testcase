@@ -932,12 +932,16 @@ int init_rdma_command_list(struct rdma_session_context *rdma_session, uint32_t q
 	// Build the rdma_command list.
 	rdma_q_ptr->rmem_rdma_cmd_list = (struct rmem_rdma_command*)kzalloc( sizeof(struct rmem_rdma_command) * rdma_q_ptr->rdma_queue_depth, GFP_KERNEL );
 
+	//initialize the spinlock
+	spin_lock_init(&(rdma_q_ptr->rdma_queue_lock));
+
 	// Initialize each rmem_rdma_command
 	for(i=0; i< rdma_q_ptr->rdma_queue_depth; i++){
 		rdma_cmd_ptr = &(rdma_q_ptr->rmem_rdma_cmd_list[i]);
 
 		// Set its flag
-		atomic_set(&(rdma_cmd_ptr->free_state), 1);
+		//atomic_set(&(rdma_cmd_ptr->free_state), 1);
+		rdma_cmd_ptr->free_state = 1;
 
 		// [x] the I/O request can contain mulplte bios, each bio can have multiple segments.
 		// Can't dertermine the good number for the rdma_buf size now. 
@@ -1052,11 +1056,11 @@ int post_rdma_write(struct rdma_session_context *rdma_session, struct request* i
 	// [?] Request to bind this chunk. TO BE DONE.
   	if(remote_chunk_ptr->chunk_state != MAPPED){
     	ret =-1;
-    	printk("%s, chunk,rkey: 0x%x isn't mapped to remote memory serveer. \n", __func__, remote_chunk_ptr->remote_rkey);
+    	printk("%s: chunk,rkey (0x%x) isn't mapped to remote memory serveer. \n", __func__, remote_chunk_ptr->remote_rkey);
     	goto err;
   	}
 
-
+	//	cpu = get_cpu();
 	// Get a free WR from this rdma_queue
 	// And fille  i/o data into the RDMA wr.
 	rdma_cmd_ptr = get_a_free_rdma_cmd_from_rdma_q(rdma_q_ptr);
@@ -1069,7 +1073,7 @@ int post_rdma_write(struct rdma_session_context *rdma_session, struct request* i
 
 	// Is this necessary ??
 	// Seems that it's not necessary 
-	cpu = get_cpu();	// Stop context switch ??
+		// Stop context switch ??
 
 	rdma_cmd_ptr->io_rq				= io_rq;						// Reserve this i/o request as responds request. 
 	rdma_cmd_ptr->rdma_sq_wr.rkey	= remote_chunk_ptr->remote_rkey;
@@ -1080,7 +1084,12 @@ int post_rdma_write(struct rdma_session_context *rdma_session, struct request* i
 	//
 	// [!!] OPTIMIZE HERE  [!!]
 	// [?] Can we register the #define bio_to_phys(bio) + ib_dma_map_sg()  as DMA buffer directly ?
-	copy_data_to_rdma_buf(io_rq, rdma_cmd_ptr);			// [??]Copy data from i/o request to RDMA buffer.
+	
+	//copy_data_to_rdma_buf(io_rq, rdma_cmd_ptr);			// [??]Copy data from i/o request to RDMA buffer.
+	
+	//debug
+	//blk_mq_complete_request(io_rq, io_rq->errors);
+
 
 	//post the 1-sided RDMA write
 	// Use the global RDMA context, rdma_session_global
@@ -1090,7 +1099,7 @@ int post_rdma_write(struct rdma_session_context *rdma_session, struct request* i
 		goto err;
 	}
 	
-	put_cpu();
+	//put_cpu();
 
 	// debug section
 	// print debug information here.
@@ -1225,6 +1234,8 @@ int post_rdma_read(struct rdma_session_context *rdma_session, struct request* io
   	}
 
 
+	//	cpu = get_cpu();	// Stop context switch ??
+
 	// Get a free WR from this rdma_queue
 	// And fille  i/o data into the RDMA wr.
 	rdma_cmd_ptr = get_a_free_rdma_cmd_from_rdma_q(rdma_q_ptr);
@@ -1237,15 +1248,18 @@ int post_rdma_read(struct rdma_session_context *rdma_session, struct request* io
 	//
 	// read the data into this wr's RDMA buffer.
 	//
-
 	// Is this necessary ??
-	cpu = get_cpu();	// Stop context switch ??
+
 
 	rdma_cmd_ptr->io_rq				= io_rq;						// Reserve this i/o request as responds request. 
 	rdma_cmd_ptr->rdma_sq_wr.rkey	= remote_chunk_ptr->remote_rkey;
 	rdma_cmd_ptr->rdma_sq_wr.remote_addr	= remote_chunk_ptr->remote_addr + offset_within_chunk;
 	rdma_cmd_ptr->rdma_sq_wr.wr.opcode		= IB_WR_RDMA_READ;
 	rdma_cmd_ptr->rdma_sq_wr.wr.sg_list->length = len;				// length of the page, should a page alignment ?
+
+	//debug
+	// responds the request before post the request.
+	//blk_mq_complete_request(io_rq, io_rq->errors);
 
 
 	//post the 1-sided RDMA write
@@ -1256,7 +1270,7 @@ int post_rdma_read(struct rdma_session_context *rdma_session, struct request* io
 		goto err;
 	}
 
-	put_cpu();
+//	put_cpu();
 
 	// debug section
 	// print debug information here.
@@ -1294,6 +1308,7 @@ int rdma_read_done(struct ib_wc *wc){
         goto err;
     }
 
+
     io_rq	= rdma_cmd_ptr->io_rq;
     // Copy data to i/o request's physical pages
 	// [!!] Assume there is only 1 page in rdma_buf [!!]
@@ -1324,16 +1339,19 @@ int rdma_read_done(struct ib_wc *wc){
 	//		received_byte_len = blk_rq_bytes(io_rq) will cause crash.
 	//		received_byte_len = 0 for debug. 
 	//
-	memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, received_byte_len );
+	//memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, received_byte_len );
 
 	// Notify the caller that the i/o request is finished.
 	blk_mq_complete_request(io_rq, io_rq->errors); // meaning of parameters, error = 0?
+
+
 
 	#ifdef DEBUG_RDMA_CLIENT
 	printk("%s: 1-sided rdma_read finished. requset->tag : %d <<<<<  \n\n",__func__, io_rq->tag);
 	//
 
 	#endif
+
 
 	//free this rdma_command
 	free_a_rdma_cmd_to_rdma_q(rdma_cmd_ptr);
@@ -1348,10 +1366,14 @@ err:
 // [?]Do we need  to consider the concurent problems ??
 //		Every dispatch queue can only use its own rdma_queue.
 //
+//	Here may cause override problems caused by concurrency problems. !!!!! get the same rdma_cmd_ind ??
+//
 //		https://lwn.net/Articles/695257/
 struct rmem_rdma_command* get_a_free_rdma_cmd_from_rdma_q(struct rmem_rdma_queue* rmda_q_ptr){
 
 	int rdma_cmd_ind  = 0;
+	unsigned long flags;
+	//int cpu;
 
 	// Fast path, use the slots pointed by rmem_rdma_queue->ptr.
 
@@ -1361,13 +1383,57 @@ struct rmem_rdma_command* get_a_free_rdma_cmd_from_rdma_q(struct rmem_rdma_queue
 	// Slow path,  traverse the list to find one.
 	// Adjust the pointer.
 	// But must make sure that the slots behind the pointer, rmem_rdma_queue->ptr, are all available.
-	while(rdma_cmd_ind != rmda_q_ptr->rdma_queue_depth - 1){
-		if( atomic_read(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state)) != 0 ){  // 1 means available.
-			atomic_set(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state), 0);  // [??] This can't solve the concurry prolbems.
+	//while(rdma_cmd_ind != rmda_q_ptr->rdma_queue_depth - 1){
+	
+	//cpu = get_cpu();
+
+	// critical section
+	//spin_lock(&(rmda_q_ptr->rdma_queue_lock));
+
+	//debug
+	// Spin lock invocation cause error ?
+	// spin lock disable all the interrup,  printk cause irq ???
+	//spin_lock_irqsave(&(rmda_q_ptr->rdma_queue_lock), flags);
+	//printk("%s, hehe \n",__func__); // Printk will cause interrupt ? Will this cause error ? no. This will not cause error.
+	//atomic_read(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state));  // Can NOT use this atomic_* operation within spin_lock_*
+	//spin_unlock_irqrestore(&(rmda_q_ptr->rdma_queue_lock), flags);
+
+	while(1){
+
+		//debug
+		printk("%s: TRY to get rdma_queue[%d] rdma_cmd[%d].\n",__func__, rmda_q_ptr->q_index, rdma_cmd_ind);
+
+		spin_lock_irqsave(&(rmda_q_ptr->rdma_queue_lock), flags);
+		// if( atomic_read(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state)) == 1 ){  // 1 means available.
+		// 	atomic_set(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state), 0);  // [??] This can't solve the concurry prolbems.
+		// 	//debug
+		// 	printk("%s: SUCC rdma_queue[%d]  get rdma_cmd[%d] \n",__func__,rmda_q_ptr->q_index ,rdma_cmd_ind);
+			
+		// 	return &(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind]);  // move forward
+		// }
+
+
+		if( rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state == 1 ){  // 1 means available.
+			rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state =0;  // [??] This can't solve the concurry prolbems.
+			
+			//debug
+			spin_unlock_irqrestore(&(rmda_q_ptr->rdma_queue_lock), flags);
+			printk("%s: SUCC rdma_queue[%d]  get rdma_cmd[%d] \n",__func__,rmda_q_ptr->q_index ,rdma_cmd_ind);
 			return &(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind]);  // move forward
 		}
-		rdma_cmd_ind++;
-	}
+
+		if(rdma_cmd_ind++ == rmda_q_ptr->rdma_queue_depth - 1){
+			rdma_cmd_ind = 0;  //busy waiting.
+		}
+
+		// unlock
+		spin_unlock_irqrestore(&(rmda_q_ptr->rdma_queue_lock), flags);
+
+	}// while.
+	//put_cpu();
+
+	//spin_unlock_irqrestore(&(rmda_q_ptr->rdma_queue_lock), flags);
+	//spin_unlock(&(rmda_q_ptr->rdma_queue_lock));
 
 //err:
 	printk(KERN_ERR "%s, Current rmem_rdma_queue[%d] : runs out rmem_rdma_cmd \n",__func__, rmda_q_ptr->q_index);
@@ -1375,8 +1441,10 @@ struct rmem_rdma_command* get_a_free_rdma_cmd_from_rdma_q(struct rmem_rdma_queue
 }
 
 // Set this rdma_command free
+// Free is a concurrent safe procedure
 inline void free_a_rdma_cmd_to_rdma_q(struct rmem_rdma_command* rdma_cmd_ptr){
-	atomic_set(&(rdma_cmd_ptr->free_state), 1);
+	//atomic_set(&(rdma_cmd_ptr->free_state), 1);
+	rdma_cmd_ptr->free_state = 1;
 	rdma_cmd_ptr->io_rq 	=	NULL;
 }
 

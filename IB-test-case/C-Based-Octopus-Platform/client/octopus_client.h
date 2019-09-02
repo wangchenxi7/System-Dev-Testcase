@@ -29,7 +29,7 @@
 
 // Utilities 
 #include <linux/log2.h>
-
+#include<linux/spinlock.h>
 
 
 //
@@ -294,7 +294,8 @@ struct rmem_rdma_command{
 	//unsigned long 					offset;			// Offset within the chunk
 	//unsigned long 					len;			// Length of the i/o reuqet data, page alignment.
 //	struct remote_chunk_g 			*chunk_ptr;
-	atomic_t 						free_state; 	//	available = 1, occupied = 0
+	//atomic_t 						free_state; 	//	available = 1, occupied = 0
+	int 							free_state;
 
 	//struct rmem_device_control 		*rmem_dev_ctx;		// disk driver_data, get from rdma_session-> rmem_dev_ctx;
 	//struct rdma_session_context		*rdma_session;	// RDMA connection context. We use a global rdma_session_global now.
@@ -339,7 +340,7 @@ struct rmem_rdma_queue {
 	struct rdma_session_context		*rdma_session;			// Record the RDMA session this queue belongs to.
 	// other fields
 
-	// struct mutex ctx_lock;		// [?] Do we need a spin lock ??
+	spinlock_t rdma_queue_lock;		// Used for manipulating on the rmem_rdma_cmd_list
 
 };
 
