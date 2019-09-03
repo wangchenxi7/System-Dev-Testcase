@@ -1047,7 +1047,7 @@ int post_rdma_write(struct rdma_session_context *rdma_session, struct request* i
 					struct remote_mapping_chunk *remote_chunk_ptr, uint64_t offse_within_chunk, uint64_t len ){
 
 	int ret = 0;
-	int cpu;
+	//int cpu;
 	struct rmem_rdma_command *rdma_cmd_ptr;
 	struct ib_send_wr *bad_wr;
 
@@ -1127,7 +1127,7 @@ err:
 int rdma_write_done(struct ib_wc *wc){
 
 	struct rmem_rdma_command 	*rdma_cmd_ptr;
-	//struct request 				*io_rq;
+	struct request 				*io_rq;
 
 
 	//Get rdma_command from wr->wr_id
@@ -1137,7 +1137,7 @@ int rdma_write_done(struct ib_wc *wc){
 		return -1;
 	}
 
-	//io_rq	= rdma_cmd_ptr->io_rq;
+	io_rq	= rdma_cmd_ptr->io_rq;
 	
 	//!!  Write data into remote memory pool successfully, no need to copy anything into the bio !!
 	// Copy data to i/o request's physical pages
@@ -1146,13 +1146,22 @@ int rdma_write_done(struct ib_wc *wc){
 
 	#ifdef DEBUG_RDMA_CLIENT
 	printk("%s, Write rquest, tag : %d finished. Return to caller. \n",__func__, rdma_cmd_ptr->io_rq->tag);
+	
+	struct bio * bio_ptr = rdma_cmd_ptr->io_rq->bio;
+	struct bio_vec *bv;
+	int i;
+
+
+	bio_for_each_segment_all(bv, bio_ptr, i) {
+        struct page *page = bv->bv_page;
+        printk("%s:  handle struct page:0x%llx  << \n", __func__, (u64)page );
+    }
 	#endif
 
-
 	// Notify the caller that the i/o request is finished.
-	blk_mq_complete_request(rdma_cmd_ptr->io_rq, rdma_cmd_ptr->io_rq->errors); // meaning of parameters, error = 0?
+	// blk_mq_complete_request(rdma_cmd_ptr->io_rq, rdma_cmd_ptr->io_rq->errors); // meaning of parameters, error = 0?
 
-
+	blk_mq_end_request(io_rq,io_rq->errors);
 
 	//free this rdma_command
 	free_a_rdma_cmd_to_rdma_q(rdma_cmd_ptr);
@@ -1220,7 +1229,7 @@ int post_rdma_read(struct rdma_session_context *rdma_session, struct request* io
 					struct remote_mapping_chunk *remote_chunk_ptr, uint64_t offset_within_chunk, uint64_t len ){
 
 	int ret = 0;
-	int cpu;
+	//int cpu;
 	struct rmem_rdma_command *rdma_cmd_ptr;
 	struct ib_send_wr *bad_wr;
 
@@ -1297,7 +1306,7 @@ int rdma_read_done(struct ib_wc *wc){
 	int ret = 0;
     struct rmem_rdma_command 	*rdma_cmd_ptr;
     struct request 				*io_rq;
-	u64 received_byte_len	= 0;  // For debug.
+	//u64 received_byte_len	= 0;  // For debug.
 
 
     //Get rdma_command from wr->wr_id
@@ -1332,6 +1341,18 @@ int rdma_read_done(struct ib_wc *wc){
 		//received_byte_len = io_rq->nr_phys_segments * PAGE_SIZE;
 		printk(KERN_ERR "%s, blk_rq_bytes(io_rq) > io_rq->nr_phys_segments*PAGE_SIZE,need to reseet size. \n",__func__);
 	}
+
+
+	struct bio * bio_ptr = rdma_cmd_ptr->io_rq->bio;
+	struct bio_vec *bv;
+	int i;
+
+
+	bio_for_each_segment_all(bv, bio_ptr, i) {
+        struct page *page = bv->bv_page;
+        printk("%s:  handle struct page:0x%llx  << \n", __func__, (u64)page );
+    }
+
 	#endif
 
 	//
@@ -1342,8 +1363,9 @@ int rdma_read_done(struct ib_wc *wc){
 	//memcpy(bio_data(io_rq->bio), rdma_cmd_ptr->rdma_buf, received_byte_len );
 
 	// Notify the caller that the i/o request is finished.
-	blk_mq_complete_request(io_rq, io_rq->errors); // meaning of parameters, error = 0?
+	//blk_mq_complete_request(io_rq, io_rq->errors); // meaning of parameters, error = 0?
 
+	blk_mq_end_request(io_rq,io_rq->errors);
 
 
 	#ifdef DEBUG_RDMA_CLIENT
@@ -1403,6 +1425,7 @@ struct rmem_rdma_command* get_a_free_rdma_cmd_from_rdma_q(struct rmem_rdma_queue
 		//debug
 		printk("%s: TRY to get rdma_queue[%d] rdma_cmd[%d].\n",__func__, rmda_q_ptr->q_index, rdma_cmd_ind);
 
+		//busy waiting.
 		spin_lock_irqsave(&(rmda_q_ptr->rdma_queue_lock), flags);
 		// if( atomic_read(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state)) == 1 ){  // 1 means available.
 		// 	atomic_set(&(rmda_q_ptr->rmem_rdma_cmd_list[rdma_cmd_ind].free_state), 0);  // [??] This can't solve the concurry prolbems.
@@ -1423,7 +1446,7 @@ struct rmem_rdma_command* get_a_free_rdma_cmd_from_rdma_q(struct rmem_rdma_queue
 		}
 
 		if(rdma_cmd_ind++ == rmda_q_ptr->rdma_queue_depth - 1){
-			rdma_cmd_ind = 0;  //busy waiting.
+			rdma_cmd_ind = 0;  
 		}
 
 		// unlock

@@ -139,6 +139,10 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   #ifdef DEBUG_RDMA_CLIENT
   u64 seg_num   = rq->nr_phys_segments;  // number of bio ??
   u64 byte_len  = blk_rq_bytes(rq);
+  struct bio * bio_ptr;
+	struct bio_vec *bv;
+	int i;
+
   if(rq_data_dir(rq) == WRITE){
     printk("%s: dispatch_queue[%d], get a write request, tag :%d >>>>>  \n", __func__, hctx->queue_num, rq->tag);
   }else{
@@ -150,6 +154,24 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   //                                                                                       write_or_not, rq->tag, 
   //                                                                                       rq->nr_phys_segments, 
   //                                                                                       rq->bio->bi_phys_segments);
+
+  //
+  // Print the physical information of the bio
+  //
+  // if(!write_or_not){
+  //     
+  //     for(i=0 , j=0 ;i< bio_ptr->bi_io_vec->bv_len; i+= PAGE_SIZE, j++){
+  //       printk("%s, handle struct page:0x%llx \n", __func__, &bio_ptr->bi_io_vec[j] );
+
+
+  //     }//for
+  // }// only print read for now
+     bio_ptr = rq->bio;
+     bio_for_each_segment_all(bv, bio_ptr, i) {
+        struct page *page = bv->bv_page;
+        printk("%s: handle struct page:0x%llx >> \n", __func__, (u64)page );
+    }
+
   #endif
 
 
@@ -157,6 +179,12 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   #ifndef DEBUG_BD_RDMA_SEPARATELY 
 
   cpu = get_cpu();
+  
+  #ifdef DEBUG_RDMA_CLIENT
+  printk("%s: get cpu %d \n",__func__, cpu);
+  #endif
+
+
 
   // Transfer I/O request to 1-sided RDMA messages.
   itnernal_ret = transfer_requet_to_rdma_message(rdma_q_ptr, rq);
@@ -166,13 +194,22 @@ static int rmem_queue_rq(struct blk_mq_hw_ctx *hctx, const struct blk_mq_queue_d
   }
 
   put_cpu();
+ 
+  #ifdef DEBUG_RDMA_CLIENT
+  printk("%s: put cpu %d \n",__func__, cpu);
+  #endif
+ 
   #endif
 
   // Start the reqeust 
   // [x] Inform some hardware, we are going to handle this request
   // After the request handling is done, 
   // we need to invoke blk_mq_complete_request(request,request->errors) to notify the upper layer.
-  blk_mq_start_request(rq);
+
+  //  TOO LATE ??
+  // Sometimes, the request is already returned before we reset its request->atomic_flags 
+  //blk_mq_start_request(rq);
+
 
 
 
@@ -321,6 +358,9 @@ int transfer_requet_to_rdma_message(struct rmem_rdma_queue* rdma_q_ptr, struct r
 	#endif
 
  
+  // start i/o requset before set it as start.
+  blk_mq_start_request(rq);
+
 
   // Build the 1-sided RDMA read/write.
   if(write_or_not){
