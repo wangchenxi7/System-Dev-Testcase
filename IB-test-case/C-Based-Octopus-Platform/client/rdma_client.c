@@ -1108,8 +1108,6 @@ int post_rdma_write(struct rdma_session_context *rdma_session, struct request* i
 	#endif
 
 
-
-
 	return ret;
 
 err:

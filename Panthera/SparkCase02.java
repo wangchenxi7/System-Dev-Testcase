@@ -20,11 +20,11 @@ import java.lang.reflect.Method;
 public class SparkCase02{
  
 	public static int arraySize    =	128;  		  // number 
-  public static int objArraySize =	2 * 1028;	  // 2K elements
+	public static int objArraySize =	2 * 1028;	  // 2K elements
  //	public static int itemSize     = 	2 * 1024; // 2K elements 
  	public static int iteration    = 	8;
 
-  public static void main(String[] args){
+	public static void main(String[] args){
 	
 		int i,j,k;
 
