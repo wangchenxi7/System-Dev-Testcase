@@ -27,21 +27,21 @@ public class Simple {
         System.out.println("Loop "+ count +", Phase 1 start : Do object array element assignment, aastore \n");
   
         // Only keep the latest 2 arrays 
-        if( (count+1)*_elem_num  >= array.length ){
+        if( (count+1)*_small_elem_num  >= array.length ){
           // 1) move array[1] to array[0] 
           System.arraycopy(array,array.length/2, array,0, array.length/2);
         }
         
         // 2) Assign newly build array to array[1]
-        for(int i= 0; i< _elem_num; i++ ){
-          array[i+_elem_num] = new objItem(i*(count+1), 2*i*(count+1));
+        for(int i= 0; i< _small_elem_num; i++ ){
+          array[i+_small_elem_num] = new objItem(i*(count+1), 2*i*(count+1));
         }
         // sleep 2s
        // sleep(2000);
   
         // 2) do object field assignment : putfield
         System.out.println("Loop "+ count +", Phase 2 start : Do object field assignment, putfield \n");
-        for(int i=_elem_num; i< array.length; i++ ){
+        for(int i=_small_elem_num; i< array.length; i++ ){
           array[i].field_1 = new internalItem((count+1)*i);
           array[i].field_2 = new internalItem((count+1)*2*i);
           array[i].field_3 = new internalItem((count+1)*3*i);
@@ -87,7 +87,7 @@ public class Simple {
     public static void main(String args[]) {
   
       //the array to be checked.
-      objItem[] array = new objItem[_elem_num*2];
+      objItem[] array = new objItem[_small_elem_num*2];
       
       region_loop(16, array);
     }

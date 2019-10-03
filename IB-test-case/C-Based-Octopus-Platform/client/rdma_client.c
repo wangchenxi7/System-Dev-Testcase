@@ -395,7 +395,7 @@ int octopus_setup_buffers(struct rdma_session_context *rdma_session)
 	// 1) Corresponding physical memory is allocated. The page table is built. 
 	//		If the memory is allocated by user space allocater, malloc, we need to walk  through the page table.
 	// 2) The physial memory is pinned, can't be swapt/paged out.
-  	rdma_session->recv_buf = kzalloc(sizeof(struct message), GFP_KERNEL);  	//[?] Or do we need to allocate DMA memory by get_dma_addr ???
+  rdma_session->recv_buf = kzalloc(sizeof(struct message), GFP_KERNEL);  	//[?] Or do we need to allocate DMA memory by get_dma_addr ???
 	rdma_session->send_buf = kzalloc(sizeof(struct message), GFP_KERNEL);  
 	rdma_session->mem = DMA;   // [??] Is this useful ? Get lkey fomr rmem_session_context->dma_mr.
 

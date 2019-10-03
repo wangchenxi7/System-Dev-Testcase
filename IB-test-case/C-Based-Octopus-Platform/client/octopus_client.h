@@ -362,20 +362,20 @@ struct rdma_session_context {
 	// cm events
 	struct rdma_cm_id *cm_id;	// IB device information ?
 
-  	// ib events 
-  	struct ib_cq *cq;			// Both send/recieve queue share the same ib_cq.
+  // ib events 
+  struct ib_cq *cq;			// Both send/recieve queue share the same ib_cq.
 	struct ib_pd *pd;
 	struct ib_qp *qp;			//[!] There is only one QP for a Remote Memory Server.
 
 
   // For infiniband connection rdma_cm operation
-  	uint16_t 	port;			/* dst port in NBO */
-	u8 			addr[16];		/* dst addr in NBO */
-  	uint8_t 	addr_type;		/* ADDR_FAMILY - IPv4/V6 */
-  	int 		txdepth;		/* SQ depth */  // [?] receive and send queue depth  use this same depth ?? CQ entry depth x2 +1??
+  uint16_t 	port;			/* dst port in NBO */
+	u8 				addr[16];		/* dst addr in NBO */
+  uint8_t 	addr_type;		/* ADDR_FAMILY - IPv4/V6 */
+  int 			txdepth;		/* SQ depth */  // [?] receive and send queue depth  use this same depth ?? CQ entry depth x2 +1??
 
-  	enum rdma_session_context_state 	state;		/* used for cond/signalling */
-  	wait_queue_head_t 					sem;      	// semaphore for wait/wakeup
+  enum rdma_session_context_state 	state;		/* used for cond/signalling */
+  wait_queue_head_t 								sem;      	// semaphore for wait/wakeup
 	uint8_t  	freed;			// some function can only be called once, this is the flag to record this.
 
 	//
@@ -383,17 +383,17 @@ struct rdma_session_context {
   	//		This section is used for RDMA connection and basic information exchange with remote memory server.
 
   	// DMA Receive buffer
-  	struct ib_recv_wr 	rq_wr;			// receive queue wr
-	struct ib_sge 		recv_sgl;		/* recv single SGE */
-  	struct message		*recv_buf;
+  struct ib_recv_wr 	rq_wr;			// receive queue wr
+	struct ib_sge 			recv_sgl;		/* recv single SGE */
+  struct message			*recv_buf;
   	//dma_addr_t 			recv_dma_addr;	// It's better to check the IB DMA address limitations, 32 or 64
-	u64					recv_dma_addr;
+	u64									recv_dma_addr;	
 	//DECLARE_PCI_UNMAP_ADDR(recv_mapping)	// Use MACRO to define a DMA fields. It will do architrecture check first. same some fields.
 	//struct ib_mr *recv_mr;
 
   	// DMA send buffer
 	// ib_send_wr, used for posting a two-sided RDMA message 
-  	struct ib_send_wr 	sq_wr;			// send queue wr
+  struct ib_send_wr 	sq_wr;			// send queue wr
 	struct ib_sge 		send_sgl;
 	struct message		*send_buf;
 	//dma_addr_t 			send_dma_addr;
