@@ -49,7 +49,7 @@
 //
 #define ONE_GB							1024*1024*1024	// byte size of ONE GB
 #define CHUNK_SIZE_GB					1		// Must be a number of 2 to power N.
-#define MAX_REMOTE_MEMORY_SIZE_GB 		8 		// The max remote memory size of current client. For 1 remote memory server, this value eaquals to the remote memory size.
+#define MAX_REMOTE_MEMORY_SIZE_GB 		32 		// The max remote memory size of current client. For 1 remote memory server, this value eaquals to the remote memory size.
 #define RDMA_READ_WRITE_QUEUE_DEPTH		16		// [?] connection with the Disk dispatch queue depth ??
 extern u64 RMEM_SIZE_IN_PHY_SECT;
 
@@ -169,19 +169,8 @@ enum mem_type {
 	MR = 4
 };
 
-/**
- * Two-sided RDMA message structure.
- * We use 2-sieded RDMA communication to exchange information between Client and Server.
- * Both Client and Server have the same message structure. 
- */
-struct message {
-  	
-	// Information of the chunk to be mapped to remote memory server.
-	uint64_t buf[MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB];		// Remote addr.
-  	uint32_t rkey[MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB];   	// remote key
-  	int size_gb;						// Size of the chunk ?
 
-	enum {
+	enum message_type{
 		DONE = 1,				// Start from 1
 		GOT_CHUNKS,				// Get the remote_addr/rkey of multiple Chunks
 		GOT_SINGLE_CHUNK,		// Get the remote_addr/rkey of a single Chunk
@@ -194,16 +183,39 @@ struct message {
 		REQUEST_CHUNKS,
 		REQUEST_SINGLE_CHUNK,	// Send a request to ask for a single chunk.
 		QUERY         			// 10
-	} type;
+	};
+
+/**
+ * Two-sided RDMA message structure.
+ * We use 2-sieded RDMA communication to exchange information between Client and Server.
+ * Both Client and Server have the same message structure. 
+ */
+struct message {
+  	
+	// Information of the chunk to be mapped to remote memory server.
+	uint64_t buf[MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB];		// Remote addr.
+  uint32_t rkey[MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB];   	// remote key
+  int size_gb;						// Size of the chunk ?
+
+	message_type type;
 };
 
 
 
 
-
+/**
+ * Need to update to Region status.
+ */
 enum chunk_mapping_state {
 	EMPTY,		// 0
-	MAPPED,		// 1
+	MAPPED,		// 1, Cached ? 
+};
+
+
+enum region_status{
+  EMPTY,			// 0, newly allocated ?
+	CACHED,			// Partial or Fully cached Regions.
+  EVICTED			// 2, clearly evicted to Memory Server
 };
 
 

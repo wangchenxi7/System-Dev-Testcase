@@ -106,7 +106,7 @@ int octopus_rdma_cm_event_handler(struct rdma_cm_id *cma_id, struct rdma_cm_even
 	    printk("%s, ESTABLISHED, wake up kernel_cb->sem\n", __func__);
 
 		rdma_session->state = CONNECTED;
-    	wake_up_interruptible(&rdma_session->sem);		
+    wake_up_interruptible(&rdma_session->sem);		
 
 		break;
 
@@ -1708,7 +1708,7 @@ int octopus_RDMA_connect(struct rdma_session_context *rdma_session){
 
 	// 5) Build the connection to Remote
 
-	//
+	// After connection, send a QUERY to query and map  the available Regions in Memory server. 
 	// Post a recv wr to wait for the FREE_SIZE RDMA message, sent from remote memory server.
 	//
 	ret = ib_post_recv(rdma_session->qp, &rdma_session->rq_wr, &bad_wr); 
