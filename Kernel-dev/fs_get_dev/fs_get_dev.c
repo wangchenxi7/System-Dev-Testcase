@@ -28,10 +28,10 @@ static int init(void){
 }
 
 
-static int exit(void){
+static void exit(void){
   printk("Exit self build kernel \n");
 
-  return 0;
+  return;
 }
 
 module_init(init);

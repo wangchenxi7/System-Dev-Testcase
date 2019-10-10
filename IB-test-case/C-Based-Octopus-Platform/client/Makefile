@@ -21,6 +21,10 @@ kernel_rdma_module_dir=/lib/modules/$(shell uname -r)/extra/octopus_client
 # The Modules.sysvers listed here will be copy to bulding directory
 #KSYMVERS = /mnt/ssd/wcx/testcase/IB-test-case/RDMA_kernel_post_send_recv/Module.symvers /usr/src/ofa_kernel/default/Module.symvers
 
+# [x] Why don't we need to specify the module.sysvers explictly ?
+# Because we use parameter "-C DIRECTORY, --directory=DIRECTORY" to change the compilation directory.
+# And then, compiler can find the module.sysvers under that directory.
+
 
 
 # obj-[m] means compile this module but not link it into kernel at startup.

@@ -2075,6 +2075,9 @@ int __init octopus_rdma_client_init_module(void)
 		printk(KERN_ERR "%s, octopus_RDMA_connect failed. \n", __func__);
 	}
 
+	struct hrtimer hr_timer;
+	hrtimer_init(&hr_timer, CLOCK_MONOTONIC,  HRTIMER_MODE_ABS);
+
 	return ret;
 }
 

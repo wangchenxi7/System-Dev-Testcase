@@ -30,7 +30,8 @@
 // Utilities 
 #include <linux/log2.h>
 #include<linux/spinlock.h>
-
+#include <linux/hrtimer.h>
+#include <linux/ktime.h>
 
 //
 // Disk hardware information
@@ -197,7 +198,7 @@ struct message {
   uint32_t rkey[MAX_REMOTE_MEMORY_SIZE_GB/CHUNK_SIZE_GB];   	// remote key
   int size_gb;						// Size of the chunk ?
 
-	message_type type;
+	enum message_type type;
 };
 
 
@@ -213,7 +214,7 @@ enum chunk_mapping_state {
 
 
 enum region_status{
-  EMPTY,			// 0, newly allocated ?
+  NEWLY_ALLOCATED,			// 0, newly allocated ?
 	CACHED,			// Partial or Fully cached Regions.
   EVICTED			// 2, clearly evicted to Memory Server
 };
