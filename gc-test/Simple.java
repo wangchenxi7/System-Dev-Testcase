@@ -10,7 +10,7 @@ public class Simple {
     public static void sleep(long ms) {
       try {
         System.out.println("Go sleeping for " + ms/1000 + "!");
-        Thread.sleep(ms);
+        Thread.sleep(ms);ß
         System.out.println("Wake up and done!");
       } catch (InterruptedException e) {
         e.printStackTrace();
