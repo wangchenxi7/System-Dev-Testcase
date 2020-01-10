@@ -9,8 +9,13 @@ then
 fi
 
 
+mode=$2
 
-
+if [ -z "${mode}"  ]
+then
+	echo "Please input the execution mode: gdb, execution"
+	read mode
+fi
 
 #
 # Parameters
@@ -23,14 +28,18 @@ STWParallelThread=1
 concurrentThread=1
 
 compressedOop="no"
+#compressedOop="yes"
 
 
 #logOpt="-Xlog:gc+heap=debug"
 #logOpt="-Xlog:gc=info"
 
 # Print GC, Concurrent Marking details
-logOpt="-Xlog:gc+marking=debug"
+#logOpt="-Xlog:gc+marking=debug"
+#logOpt="-Xlog:gc,gc+marking=debug"
 
+# heap is a self defined Xlog tag.
+logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug"
 
 
 #
@@ -60,10 +69,16 @@ fi
 # Execute the  Commandlines 
 #
 
+if [ "${mode}" = "gdb"  ]
+then
+	gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
+elif [ "${mode}" = "execution" ]
+then
+	java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
 
-gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
-
-
+else
+	echo "Wrong Mode."
+fi
 
 
 

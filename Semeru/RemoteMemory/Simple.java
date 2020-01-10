@@ -101,7 +101,7 @@ public class Simple {
       // A global array to record the newly generated objects.
       objItem[] array = new objItem[_small_elem_num*2];
       
-      region_loop(1111111116, array);
+      region_loop(16, array);
     }
   }
   

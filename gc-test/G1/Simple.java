@@ -2,7 +2,15 @@
  * 	Basic Java program for G1 GC debuging.
  *	
  *	Trigger STW Young GC and concurrent Full-GC
- * 	
+ * 
+ *
+ *  Java Parameters:
+ *			java -XX:+UseG1GC -XX:-UseCompressedOops -Xlog:heap=debug,gc+marking=debug -Xms128M -Xmx128M -XX:ParallelGCThreads=1 -XX:ConcGCThreads=1  		
+ *
+ *	Class Information
+ *		Main Class : Simple
+ *			Ref-> Class : ObjItem
+ *				Ref-> Class : InternalItem
  *
  */
 public class Simple {
