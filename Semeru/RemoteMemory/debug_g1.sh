@@ -25,7 +25,8 @@ MemSize="128M"
 
 
 # Enable the Semeru Memory pool
-EnableSemeruMemPool="true"
+#EnableSemeruMemPool="true"
+EnableSemeruMemPool="false"
 
 SemeruMemPoolSize="32G"
 #SemeruMemPool=""
@@ -56,23 +57,19 @@ logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=
 # Apply the options.
 #
 
-if [ ${EnableSemeruMemPool} = "true" ]
+
+if [ ${EnableSemeruMemPool} = "false" ]
 then
-	EnableSemeruMemPool="-XX:SemeruEnableMemPool"
-elif [ ${EnableSemeruMemPool} = "false"  ]
+	SemeruMemPoolParameter=""
+elif  [ ${EnableSemeruMemPool} = "true" ]
 then
-	EnableSemeruMemPool=""
+	SemeruMemPoolParameter="-XX:SemeruEnableMemPool -XX:SemeruMemPoolMaxSize=${SemeruMemPoolSize} -XX:SemeruMemPoolInitialSize=${SemeruMemPoolSize} -XX:SemeruMemPoolAlignment=${SemeruMemPoolAlignment} "
 else
 	echo "Wrong vlaue for 'EnableSemeruMemPool'"
 	exit
 fi
 
-if [ -z ${SemeruMemPoolSize} ]
-then
-	SemeruMemPoolParameter="-XX:SemeruMemPoolMaxSize=0 -XX:SemeruMemPoolInitialSize=0 "
-else
-	SemeruMemPoolParameter="-XX:SemeruMemPoolMaxSize=${SemeruMemPoolSize} -XX:SemeruMemPoolInitialSize=${SemeruMemPoolSize} -XX:SemeruMemPoolAlignment=${SemeruMemPoolAlignment} "
-fi
+
 
 if [ ${compressedOop} = "no"  ]
 then
@@ -99,10 +96,10 @@ fi
 
 if [ "${mode}" = "gdb"  ]
 then
-	gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${EnableSemeruMemPool}  ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
+	gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize}   ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
 elif [ "${mode}" = "execution" ]
 then
-	java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${EnableSemeruMemPool} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
+	java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
 
 else
 	echo "Wrong Mode."
