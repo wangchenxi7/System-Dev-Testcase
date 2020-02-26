@@ -72,10 +72,11 @@ int main(){
 				
 	int type = 0x1;
 	uint64_t request_addr 	= 0x400000000000; // start of RDMA meta space
-	uint64_t size  					=	0x1000;		// 4KB
+	uint64_t size  					=	0x2000;		// 4KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
 	char* user_buff;
 	uint64_t i;
-	uint64_t initial_val					= -1;  //
+	uint64_t initial_val		= -1;  //
+	int syscall_ret 				= 0;
 
 	// 1) reserve space by mmap
 	user_buff = reserve_anon_memory((char*)request_addr, size, true );
@@ -98,9 +99,34 @@ int main(){
 	for(i=0; i< size/sizeof(uint64_t); i++ ){
 		buf_ptr[i] = initial_val;  // the max value.
 	}
-	printf("Before syscall, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
 
-  int syscall_ret = syscall(SYS_do_semeru_rdma_ops,0x1, user_buff, size);
+
+
+	// 1) RDMA write
+	//
+	type = 0x2;
+	printf("Before syscall - RDMA Write, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
+  syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, user_buff, size);
+  printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
+
+
+
+	sleep(3);
+
+
+
+  // 2) RDMA read
+  //
+	type =0x1;
+	// reset the value to test read/write 
+	for(i=0; i< size/sizeof(uint64_t); i++ ){
+		buf_ptr[i] = 0;  // the max value.
+	}
+
+
+	printf("Before syscall - RDMA read, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
+
+  syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, user_buff, size);
   printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
   
 	// busy checking the first uint64_t value of the buffer.
@@ -118,7 +144,7 @@ int main(){
 
 	}
 
-	printf("After syscall, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
+	printf("After syscall RDMA read, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
 
 	return 0;
 }
