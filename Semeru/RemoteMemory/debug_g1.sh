@@ -25,8 +25,8 @@ MemSize="128M"
 
 
 # Enable the Semeru Memory pool
-#EnableSemeruMemPool="true"
-EnableSemeruMemPool="false"
+EnableSemeruMemPool="true"
+#EnableSemeruMemPool="false"
 
 SemeruMemPoolSize="32G"
 #SemeruMemPool=""
@@ -50,7 +50,7 @@ compressedOop="no"
 #logOpt="-Xlog:gc,gc+marking=debug"
 
 # heap is a self defined Xlog tag.
-logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=debug,gc+bot=debug"
+logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=debug,gc+bot=debug,semeru+alloc=debug"
 
 
 #
