@@ -69,7 +69,7 @@ int main(){
 				
 	int type = 0x1;
 	uint64_t request_addr 	= 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
-	uint64_t size  					=	0x20000000;		// 512MB
+	uint64_t size  					=	0x20000000;		// 512MB, for uint64_t, length is 0x4,000,000
 	char* user_buff;
 	uint64_t i;
 	uint64_t sum = 0;
@@ -99,7 +99,7 @@ int main(){
 	sum =0;
 	printf("Phase #2, trigger swap in.\n");
 	for(i=0; i< size/sizeof(uint64_t); i++ ){
-		sum +=buf_ptr[i];  // the max value.
+		sum +=buf_ptr[i];  // the sum should be 0x7,FFF,FFE,000,000.
 	}
 
 	printf("sum : 0x%llx \n",sum);
