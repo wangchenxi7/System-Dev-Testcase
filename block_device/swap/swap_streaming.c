@@ -5,9 +5,9 @@
  */
 
 #include "stdio.h"
+#include "stdint.h"
 
-
-#define ARRAY_LENGTH 1024*1024*16   // length is 16M, 
+#define ARRAY_LENGTH (uint64_t)1024*1024*1024*2   // length is 16M, 
 
 int main(int argc, char* argv[]){
 	int i;
