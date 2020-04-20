@@ -72,7 +72,8 @@ int main(){
 				
 	int type = 0x1;
 	uint64_t request_addr 	= 0x400000000000; // start of RDMA meta space
-	uint64_t size  					=	0x2000;		// 4KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
+	//uint64_t size  					=	0x2000;		// 4KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
+	uint64_t size  					=	0x40000; // 64(30+30+4) pages, test scatter-gather design.
 	char* user_buff;
 	uint64_t i;
 	uint64_t initial_val		= -1;  //
@@ -111,7 +112,7 @@ int main(){
 
 
 
-	sleep(3);
+	//sleep(5);
 
 
 
@@ -119,6 +120,7 @@ int main(){
   //
 	type =0x1;
 	// reset the value to test read/write 
+	printf("reset the value on current server to 0. \n");
 	for(i=0; i< size/sizeof(uint64_t); i++ ){
 		buf_ptr[i] = 0;  // the max value.
 	}
@@ -129,20 +131,23 @@ int main(){
   syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, user_buff, size);
   printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
   
+	sleep(5);
+
+
 	// busy checking the first uint64_t value of the buffer.
 	// give rdma some time to run
-	for(i=0; i<initial_val; i++){  // inifinit
-		if(*(uint64_t*)user_buff != initial_val ){
-			printf("1-sided RDMA read finished. value 0x%llx \n", *(uint64_t*)user_buff);
-			break;
-		}else{
-			//keep busy waiting 
-			//if(i%8 == 0)
-				printf("busy waiting, time counter: 0x%llx \n",i);
-		}
+	// for(i=0; i<initial_val; i++){  // inifinit
+	// 	if(*(uint64_t*)user_buff != initial_val ){
+	// 		printf("1-sided RDMA read finished. value 0x%llx \n", *(uint64_t*)user_buff);
+	// 		break;
+	// 	}else{
+	// 		//keep busy waiting 
+	// 		//if(i%8 == 0)
+	// 			printf("busy waiting, time counter: 0x%llx \n",i);
+	// 	}
 
 
-	}
+	// }
 
 	printf("After syscall RDMA read, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
 
