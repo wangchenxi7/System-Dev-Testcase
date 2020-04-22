@@ -46,12 +46,15 @@ public:
 
 int main(int argc, char* argv[]){
 
-	outside_class* obj_outside_pointer = new outside_class();
-	outside_class obj_outside_var;
+	outside_class* obj_outside_pointer = new outside_class();			// Allocate instance into heap.
+	outside_class obj_outside_var;						// allocate the instance into stack.
 
-	printf(" obj_outside_pointer : address 0x%lx , size 0x%lx \n", (unsigned long)obj_outside_pointer, (unsigned long)sizeof(obj_outside_pointer) );
-	printf("		obj_outside_pointer->obj_inner_var :0x%lx	, size 0x%lx \n", (unsigned long)&(obj_outside_pointer->obj_inner_var), (unsigned long)sizeof(obj_outside_pointer->obj_inner_var) );
-	printf("		obj_outside_pointer->obj_inner_pointer : 0x%lx, size 0x%lx \n	",(unsigned long)obj_outside_pointer->obj_inner_pointer, (unsigned long)sizeof(obj_outside_pointer->obj_inner_pointer) );
+	printf(" obj_outside_pointer : address 0x%lx , size 0x%lx \n", 
+									(unsigned long)obj_outside_pointer, (unsigned long)sizeof(obj_outside_pointer) );
+	printf("		obj_outside_pointer->obj_inner_var :0x%lx	, size 0x%lx \n", 
+									(unsigned long)&(obj_outside_pointer->obj_inner_var), (unsigned long)sizeof(obj_outside_pointer->obj_inner_var) );
+	printf("		obj_outside_pointer->obj_inner_pointer : 0x%lx, size 0x%lx \n	",
+									(unsigned long)obj_outside_pointer->obj_inner_pointer, (unsigned long)sizeof(obj_outside_pointer->obj_inner_pointer) );
 	printf("\n");
 
 

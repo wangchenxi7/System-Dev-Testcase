@@ -1,0 +1,163 @@
+#! /bin/bash
+
+bench=$1
+
+if [ -z "${bench}"  ]
+then
+	echo "Please input the bench : e.g.  Simple"
+	read bench
+fi
+
+
+mode=$2
+
+if [ -z "${mode}"  ]
+then
+	echo "Please input the execution mode: gdb, execution"
+	read mode
+fi
+
+#
+# Parameters
+#
+
+###
+# File to be executed
+BenchPath="${HOME}/System-Dev-Testcase/Semeru/CPUServer"
+
+# Java path follow the JAVA_HOME
+
+##
+# Semreu Parameters
+
+
+# Enable the Semeru Memory pool
+EnableSemeruMemPool="true"
+#EnableSemeruMemPool="false"
+
+SemeruMemPoolSize="32G"
+#SemeruMemPool=""
+
+# Region size and Heap's allocation alignment.
+SemeruMemPoolAlignment="1G"
+
+
+
+
+##
+# Original jdk parameters
+MemSize="128M"
+
+RegionSize="16m"
+TLABSize="4096"
+
+STWParallelThread=1
+concurrentThread=1
+
+compressedOop="no"
+#compressedOop="yes"
+
+
+#logOpt="-Xlog:gc+heap=debug"
+#logOpt="-Xlog:gc=info"
+
+# Print GC, Concurrent Marking details
+#logOpt="-Xlog:gc+marking=debug"
+#logOpt="-Xlog:gc,gc+marking=debug"
+
+# heap is a self defined Xlog tag.
+#logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=debug,gc+bot=debug,semeru+alloc=debug, semeru+mem_trace=debug"
+logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug,semeru+alloc=debug,semeru+rdma=debug,semeru+mem_trace=debug,semeru+compact=debug"
+
+
+#
+# Apply the options.
+#
+
+
+if [ ${EnableSemeruMemPool} = "false" ]
+then
+	SemeruMemPoolParameter=""
+elif  [ ${EnableSemeruMemPool} = "true" ]
+then
+	#SemeruMemPoolParameter="-XX:SemeruEnableMemPool -XX:SemeruMemPoolMaxSize=${SemeruMemPoolSize} -XX:SemeruMemPoolInitialSize=${SemeruMemPoolSize} -XX:SemeruMemPoolAlignment=${SemeruMemPoolAlignment} "
+	SemeruMemPoolParameter="-XX:SemeruEnableMemPool"
+else
+	echo "Wrong vlaue for 'EnableSemeruMemPool'"
+	exit
+fi
+
+
+
+if [ ${compressedOop} = "no"  ]
+then
+	compressedOop="-XX:-UseCompressedOops"	
+
+elif [ ${compressedOop} = "yes"  ]
+then
+	# Open the compressed oop, no matter what's  the size of the Java heap
+	compressedOop="-XX:+UseCompressedOops"
+
+else
+	# Used the default policy
+	# If Heap size <= 32GB, use Compressed oop, 32 bits addresso. 
+	compressedOop=""
+fi
+
+
+
+
+##
+# Other JVM options
+other_opt="-XX:NewRatio=3"
+
+
+
+
+###
+# Functions
+
+close_last_dead_pid () {
+	echo "Try to close the dead processes."
+
+	# Close dead pid 1
+	pid1=`ps aux | grep "Semeru" | awk '{print $2}' | awk 'NR==1 {print $0}' `
+
+	# Close dead pid 2	
+	pid2=`ps aux | grep "Semeru" | awk '{print $2}' | awk 'NR==2 {print $0}' `
+
+	# The shellscrip is the third pid
+	pid3=`ps aux | grep "Semeru" | awk '{print $2}' | awk 'NR==3 {print $0}' `
+	if [ -n "${pid1}" -a -n ${pid2}	-a -n ${pid3} ]
+	then 
+		echo "close ${pid1} and ${pid2}"
+		sudo kill -9 ${pid1} ${pid2}
+	fi
+
+}
+
+
+
+#
+# Execute the  Commandlines 
+#
+
+if [ "${mode}" = "gdb"  ]
+then
+	echo "gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize}   ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} -cp ${BenchPath}  ${bench}"
+	gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize}   ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} ${other_opt}  -cp ${BenchPath} ${bench}
+elif [ "${mode}" = "execution" ]
+then
+	# Close the old one
+	close_last_dead_pid	
+	
+	# Run a new bench
+	echo "java -XX:+UseG1GC  ${compressedOop}  ${logOpt} -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  -cp ${BenchPath} ${bench}"
+	java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} ${other_opt}  -cp ${BenchPath}  ${bench}
+
+else
+	echo "Wrong Mode."
+fi
+
+
+

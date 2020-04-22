@@ -10,16 +10,27 @@ then
 	exit
 fi
 
-testcase_dir="${HOME}/testcase/Semeru/RemoteMemory"
+testcase_dir="${HOME}/System-Dev-Testcase/Semeru/RemoteMemory"
 bench=$1
 
 if [ -z "${bench}"  ]
 then
-	echo "Inpute the bencmark name. e.g.  Case1"
+	echo "Input the bencmark name. e.g.  Case1"
 	read bench
 else
 	echo "Run the benchmark ${testcase}${bench} "
 fi
+
+
+execute_mode=$2
+
+if [ -z "${execute_mode}"  ]
+then
+	echo "Input execute mode, e.g. gdb, execution"
+	read execute_mode
+fi
+
+echo "Run the ${testcase}${bench} on mode ${execute_mode}"
 
 
 
@@ -32,12 +43,14 @@ java_exe="${HOME}/jdk12u-self-build/jvm/openjdk-12.0.2-internal/bin/java"
 
 EnableSemeruMemPool="true"
 
-SemeruMemPoolSize="32G"
+#SemeruMemPoolSize="32G"
+SemeruMemPoolSize="128M"
 
 # Region size and Heap's allocation alignment.
-SemeruMemPoolAlignment="1G"
+#SemeruMemPoolAlignment="1G"
+SemeruMemPoolAlignment="16M"
 
-SemeruConcurrentThread=2
+SemeruConcurrentThread=1
 
 
 
@@ -58,7 +71,7 @@ compressedOop="no"
 
 # heap is a self defined Xlog tag.
 #logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=debug,gc+bot=debug,gc+workgang=trace,workgang=debug,gc+task=debug,os+thread=debug
-logOpt=""
+logOpt="-Xlog:heap=debug,semeru+rdma=debug,semeru+mem_compact=debug,semeru+alloc=debug,semeru+mem_trace=debug"
 
 
 
@@ -94,4 +107,17 @@ fi
 
 ## Do  the excution
 
- ${java_exe} ${original_gc_mode}  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread} -XX:-UseDynamicNumberOfGCThreads   -XX:ConcGCThreads=${concurrentThread}  ${bench}
+if [ "${execute_mode}" = "execution"  ]
+then
+	${java_exe} ${original_gc_mode}  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread} -XX:-UseDynamicNumberOfGCThreads   -XX:ConcGCThreads=${concurrentThread} -cp ${testcase_dir}  ${bench}
+
+elif [ "${execute_mode}" = "gdb" ]
+then
+	gdb --args ${java_exe} ${original_gc_mode}  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread} -XX:-UseDynamicNumberOfGCThreads   -XX:ConcGCThreads=${concurrentThread} -cp ${testcase_dir}  ${bench}
+else
+	echo "Select the WRONG execution mode, ${execute_mode}"
+	exit 
+fi
+
+
+
