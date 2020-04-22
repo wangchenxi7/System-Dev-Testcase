@@ -36,6 +36,7 @@ SemeruMemPoolAlignment="1G"
 
 STWParallelThread=1
 concurrentThread=1
+SemeruConcurrentThread=1
 
 compressedOop="no"
 #compressedOop="yes"
@@ -49,7 +50,14 @@ compressedOop="no"
 #logOpt="-Xlog:gc,gc+marking=debug"
 
 # heap is a self defined Xlog tag.
-logOpt="-Xlog:heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=debug,gc+bot=debug"
+
+# Full Debug
+#logOpt="-Xlog:semeru=debug,heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=debug,gc+bot=debug,gc+workgang=trace,workgang=debug,gc+task=debug,gc+thread=debug,os+thread=debug"
+
+# Thread debug
+logOpt="-Xlog:semeru=debug,heap=debug,gc=debug,gc+marking=debug,semeru+compact=debug,semeru+alloc=debug,semeru+thread=debug"
+
+#logOpt="-Xlog:semeru+heap=debug,heap=debug,gc=debug,gc+marking=debug,gc+remset=debug,gc+ergo+cset=debug,gc+bot=debug"
 
 
 #
@@ -71,7 +79,7 @@ if [ -z ${SemeruMemPoolSize} ]
 then
 	SemeruMemPoolParameter="-XX:SemeruMemPoolMaxSize=0 -XX:SemeruMemPoolInitialSize=0 "
 else
-	SemeruMemPoolParameter="-XX:SemeruMemPoolMaxSize=${SemeruMemPoolSize} -XX:SemeruMemPoolInitialSize=${SemeruMemPoolSize} -XX:SemeruMemPoolAlignment=${SemeruMemPoolAlignment} "
+	SemeruMemPoolParameter="-XX:SemeruMemPoolMaxSize=${SemeruMemPoolSize} -XX:SemeruMemPoolInitialSize=${SemeruMemPoolSize} -XX:SemeruMemPoolAlignment=${SemeruMemPoolAlignment} -XX:SemeruConcGCThreads=${SemeruConcurrentThread}"
 fi
 
 if [ ${compressedOop} = "no"  ]
@@ -99,10 +107,10 @@ fi
 
 if [ "${mode}" = "gdb"  ]
 then
-	gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${EnableSemeruMemPool}  ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
+	gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${EnableSemeruMemPool}  ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread} -XX:-UseDynamicNumberOfGCThreads   -XX:ConcGCThreads=${concurrentThread}  ${bench}
 elif [ "${mode}" = "execution" ]
 then
-	java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${EnableSemeruMemPool} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  ${bench}
+	java -XX:+UseG1GC  ${compressedOop}  ${logOpt}   -Xms${MemSize} -Xmx${MemSize} ${EnableSemeruMemPool} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread} -XX:-UseDynamicNumberOfGCThreads   -XX:ConcGCThreads=${concurrentThread}  ${bench}
 
 else
 	echo "Wrong Mode."
