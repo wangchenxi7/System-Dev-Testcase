@@ -121,17 +121,32 @@ close_last_dead_pid () {
 	echo "Try to close the dead processes."
 
 	# Close dead pid 1
-	pid1=`ps aux | grep "Semeru" | awk '{print $2}' | awk 'NR==1 {print $0}' `
+	pid1=`ps aux | grep "java" | grep -v "grep"  | awk '{print $2}' | awk 'NR==1 {print $0}' `
+	# the grep process
+	#pid2=`ps aux | grep "java" | awk '{print $2}' | awk 'NR==2 {print $0}' `
+	
+	echo "pid1 ${pid1}"
+	if [ -n "${pid1}" ]
+	then 
+		echo "close ${pid1} "
+		sudo kill -9 ${pid1}
+	fi
 
 	# Close dead pid 2	
-	pid2=`ps aux | grep "Semeru" | awk '{print $2}' | awk 'NR==2 {print $0}' `
+	# it contain 3 process, last one, current one, and the grep
+	current_pid="$$"
+	ps aux | grep "debug_cpu_server.sh" | grep -v "grep"  > ~/tmp.txt
+	pid1=`cat ~/tmp.txt | awk '{print $2}' | awk 'NR==1 {print $0}' `
+	pid2=`cat ~/tmp.txt | awk '{print $2}' | awk 'NR==2 {print $0}' `
 
-	# The shellscrip is the third pid
-	pid3=`ps aux | grep "Semeru" | awk '{print $2}' | awk 'NR==3 {print $0}' `
-	if [ -n "${pid1}" -a -n ${pid2}	-a -n ${pid3} ]
+	echo "current_pid ${current_pid}, pid1 ${pid1}, pid2 ${pid2}"
+	if [ "${pid1}" = "${current_pid}" ]
 	then 
-		echo "close ${pid1} and ${pid2}"
-		sudo kill -9 ${pid1} ${pid2}
+		echo "Kill pid ${pid2}"
+		sudo kill -9 ${pid2}
+	else
+		echo "Kill pid ${pid1}"
+		sudo kill -9 ${pid1}
 	fi
 
 }
