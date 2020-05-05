@@ -6,7 +6,7 @@ bench=$1
 
 if [ -z "${bench}" ]
 then
-	echo "Select the bench to run: e.g. stream, mmap, flush"
+	echo "Select the bench to run: e.g. stream, mmap, flush, swap_ratio"
 	read bench
 fi
 
@@ -27,8 +27,12 @@ then
 
 elif [ "${bench}" =  "flush"  ]
 then
-	echo "${HOME}/System-Dev-Testcase/block_device/swapflush_page_to_swap_imm.o"
+	echo "${HOME}/System-Dev-Testcase/block_device/swap/flush_page_to_swap_imm.o"
 	${HOME}/System-Dev-Testcase/block_device/swap/flush_page_to_swap_imm.o
+elif [ "${bench}" =  "swap_ratio"  ]
+then
+	echo "${HOME}/System-Dev-Testcase/block_device/swap/swap_out_ratio_flush_based.o"
+	${HOME}/System-Dev-Testcase/block_device/swap/swap_out_ratio_flush_based.o
 else
 	echo "!! Wrong choice : ${bench} !!"
 	exit

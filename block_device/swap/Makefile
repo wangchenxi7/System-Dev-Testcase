@@ -8,6 +8,7 @@ all:
 	cc ${CFLAGS} swap_mmap.c -o swap_mmap.o
 	cc ${CFLAGS} add_page_to_inactive_list.c -o add_page_to_inactive_list.o
 	cc ${CFLAGS} flush_page_to_swap_imm.c -o flush_page_to_swap_imm.o
+	cc ${CFLAGS} swap_out_ratio_flush_based.c -o swap_out_ratio_flush_based.o
 
 flush :
 	cc ${CFLAGS} flush_page_to_swap_imm.c -o flush_page_to_swap_imm.o

@@ -20,6 +20,8 @@
 
 #define MADV_FLUSH_RANGE_TO_REMOTE 20  // Should include from linux header
 
+#define SYS_SWAP_STAT_RESET			335
+#define SYS_NUM_SWAP_OUT_PAGES	336
 
 typedef enum {true, false} bool;
 
@@ -84,6 +86,7 @@ int main(){
 	char* user_buff;
 	uint64_t i;
 	uint64_t sum = 0;
+	uint64_t swapped_out_pages = 0;
 	int ret;
 
 	// 1) reserve space by mmap
@@ -108,10 +111,22 @@ int main(){
 		buf_ptr[i] = i;  // the max value.
 	}
 
+	printf("	Reset the swap out statistics monitoring array\n");
+	ret = syscall(SYS_SWAP_STAT_RESET, request_addr, size);
+	printf("	SYS_SWAP_STAT_RESET returned %d \n", ret);
+
+	printf("	#1 Check current swapped out pages num\n");
+	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
+	printf("	#1 swapped out pages num 0x%llx \n", swapped_out_pages);  // should be 0.
+
+
 	printf("Phase#2, invoke madvice to add the whole array into inactive list \n");
 	ret = madvise(user_buff, size, MADV_FLUSH_RANGE_TO_REMOTE);
 	//ret = madvise(user_buff, size, 8);
 	
+	printf("	#2 Check current swapped out pages num after calling madvise\n");
+	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
+	printf("	#2 swapped out pages num 0x%llx \n", swapped_out_pages);  // should be size/4K
 	
 	if(ret !=0){
 		printf("MAD_FREE failed, return value %d \n", ret);
@@ -119,10 +134,14 @@ int main(){
 
 	sum =0;
 	printf("Phase#3, trigger swap in.\n");
-	for(i=0; i< size/sizeof(uint64_t); i+=1024 ){
+	for(i=0; i< size/sizeof(uint64_t); i+=1024 ){ // access 1 u64 per 8KB, 2pages.
 		printf("buf_ptr[0x%llx] 0x%llx \n",(uint64_t)i, buf_ptr[i]);
 		sum +=buf_ptr[i];  // the sum should be 0x7f0,000
 	}
+
+	printf("	#3 Check current swapped out pages num after re-access these pages\n");
+	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
+	printf("	#3 swapped out pages num 0x%llx \n", swapped_out_pages);	// should be half the pages stay swapped out.
 
 	printf("sum : 0x%llx \n",sum);
 
