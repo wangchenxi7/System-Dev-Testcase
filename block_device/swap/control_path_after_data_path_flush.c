@@ -87,7 +87,7 @@ int main(){
 	int type = 0x1;
 	uint64_t request_addr 	= 0x400100000000; // [ 0x400,100,000,000 to 0x400,900,000,000) is RDMA Data space range. Only Data space support data-path flush.
 	//uint64_t size  					=	0x1e000;		// 8KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
-	uint64_t size  				=	0x1e000; // 64(30+30+4) pages, test scatter-gather design.
+	uint64_t size  				=	0x14000; // 64(30+30+4) pages, test scatter-gather design.
 	char* user_buff = NULL;
 	uint64_t i;
 	uint64_t swapped_out_pages = 0;
@@ -131,8 +131,8 @@ int main(){
 
 	// 2) Data path flush(write)
 	//
-	printf("Phase#2, invoke madvice to flush half of the array to swap partition \n");
-	syscall_ret = madvise(user_buff, size/2, MADV_FLUSH_RANGE_TO_REMOTE);
+	printf("Phase#2, invoke madvice to flush 16 pages to swap partition \n");
+	syscall_ret = madvise(user_buff, 0x10000, MADV_FLUSH_RANGE_TO_REMOTE);
 	if(syscall_ret !=0){
 		printf("MAD_FREE failed, return value %d \n", syscall_ret);
 	}
@@ -146,10 +146,10 @@ int main(){
 
 	// 3) Control path flush
 	//
-	// type = 0x2;
-	// printf("Phase#3, Control path RDMA Write. Only half of the pages can be sent by control path.\n");
-  // syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, user_buff, size);
-  // printf(" System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
+	type = 0x2;  //write
+	printf("Phase#3, Control path RDMA Write. Only half of the pages can be sent by control path.\n");
+  syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, user_buff, size);
+  printf(" System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
 
 
 	sleep(2);
