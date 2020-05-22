@@ -24,6 +24,8 @@ fi
 ###
 # File to be executed
 BenchPath="${HOME}/System-Dev-Testcase/Semeru/CPUServer"
+EXEC_JAVA_HOME="/mnt/ssd/wcx/JDK/build/linux-x86_64-server-fastdebug/jdk"
+
 
 # Java path follow the JAVA_HOME
 
@@ -46,9 +48,9 @@ SemeruMemPoolAlignment="1G"
 
 ##
 # Original jdk parameters
-MemSize="128M"
+MemSize="1024M"
 
-RegionSize="16m"
+RegionSize="64m"
 TLABSize="4096"
 
 STWParallelThread=1
@@ -159,16 +161,16 @@ close_last_dead_pid () {
 
 if [ "${mode}" = "gdb"  ]
 then
-	echo "gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize}   ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} -cp ${BenchPath}  ${bench}"
-	gdb --args  java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize}   ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} ${other_opt}  -cp ${BenchPath} ${bench}
+	echo "gdb --args  ${EXEC_JAVA_HOME}/bin/java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize}   ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} -cp ${BenchPath}  ${bench}"
+	gdb --args  ${EXEC_JAVA_HOME}/bin/java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize}   ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} ${other_opt}  -cp ${BenchPath} ${bench}
 elif [ "${mode}" = "execution" ]
 then
 	# Close the old one
 	close_last_dead_pid	
 	
 	# Run a new bench
-	echo "java -XX:+UseG1GC  ${compressedOop}  ${logOpt} -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  -cp ${BenchPath} ${bench}"
-	java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} ${other_opt}  -cp ${BenchPath}  ${bench}
+	echo "${EXEC_JAVA_HOME}/bin/java -XX:+UseG1GC  ${compressedOop}  ${logOpt} -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread}  -cp ${BenchPath} ${bench}"
+	${EXEC_JAVA_HOME}/bin/java -XX:+UseG1GC  ${compressedOop}  ${logOpt}  -XX:G1HeapRegionSize=${RegionSize} -XX:TLABSize=${TLABSize}   -Xms${MemSize} -Xmx${MemSize} ${SemeruMemPoolParameter}  -XX:ParallelGCThreads=${STWParallelThread}   -XX:ConcGCThreads=${concurrentThread} ${other_opt}  -cp ${BenchPath}  ${bench}
 
 else
 	echo "Wrong Mode."
