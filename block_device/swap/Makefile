@@ -12,6 +12,7 @@ all:
 	cc ${CFLAGS} control_path.c -o control_path.o
 	cc ${CFLAGS} flush_page_to_swap_imm.c -o flush_page_to_swap_imm.o
 	cc ${CFLAGS} control_path_after_data_path_flush.c -o control_path_after_data_path_flush.o
+	cc ${CFLAGS} on_demand_swapin.c -o on_demand_swapin.o 
 
 
 clean:

@@ -16,7 +16,7 @@
 public class Simple {
 
     public static final int _elem_num       = 12*1024*1024;     // 12M elements
-    public static final int _small_elem_num = _elem_num/128;		// 96K elements
+    public static final int _small_elem_num = _elem_num/16;		// 96K elements
   
     public static void sleep(long ms) {
       try {

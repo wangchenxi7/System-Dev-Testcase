@@ -23,6 +23,7 @@
 #define SYS_SWAP_STAT_RESET			335
 #define SYS_NUM_SWAP_OUT_PAGES	336
 
+
 typedef enum {true, false} bool;
 
 extern errno;
