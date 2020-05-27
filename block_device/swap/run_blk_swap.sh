@@ -41,6 +41,10 @@ elif [ "${bench}" =  "control_path_after_data"  ]
 then
 	echo "${HOME}/System-Dev-Testcase/block_device/swap/control_path_after_data_path_flush.o"
 	${HOME}/System-Dev-Testcase/block_device/swap/control_path_after_data_path_flush.o
+elif [ "${bench}" =  "on_demand_swapin"  ]
+then
+	echo "${HOME}/System-Dev-Testcase/block_device/swap/on_demand_swapin.o"
+	${HOME}/System-Dev-Testcase/block_device/swap/on_demand_swapin.o
 else
 	echo "!! Wrong choice : ${bench} !!"
 	exit

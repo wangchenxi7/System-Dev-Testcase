@@ -83,8 +83,8 @@ int main(){
 				
 	int type = 0x1;
 	uint64_t request_addr 	= 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
-	//uint64_t size  					=	0x100000;		// 1MB, for uint64_t, length is 0x20,000
-	uint64_t size  					=	0x2000000;		// 16MB, for uint64_t, length is 0x200,000
+	uint64_t size  					=	0x100000;		// 1MB, for uint64_t, length is 0x20,000
+	//uint64_t size  					=	0x2000000;		// 16MB, for uint64_t, length is 0x200,000
 	char* user_buff;
 	uint64_t i;
 	uint64_t sum = 0;
@@ -121,7 +121,7 @@ int main(){
 	printf("	#1 Check current swapped out pages num\n");
 	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
 	on_demand_swapin_record	= syscall(SYS_ON_DEMAND_SWAPIN);
-	printf("	#1 swapped out pages num 0x%llx , on demand swapin page \n", swapped_out_pages, on_demand_swapin_record);  // should be 0.
+	printf("	#1 swapped out pages num 0x%llx , on demand swapin page 0x%x\n", swapped_out_pages, on_demand_swapin_record);  // should be 0.
 
 
 	printf("Phase#2, invoke madvice to add the whole array into inactive list \n");
@@ -146,7 +146,7 @@ int main(){
 	printf("	#3 Check current swapped out pages num after re-access these pages\n");
 	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
 	on_demand_swapin_record	= syscall(SYS_ON_DEMAND_SWAPIN);
-	printf("	#3 swapped out pages num 0x%llx , on demand swapin page \n", swapped_out_pages, on_demand_swapin_record);  // should be 0.
+	printf("	#3 swapped out pages num 0x%llx , on demand swapin page 0x%x \n", swapped_out_pages, on_demand_swapin_record);  // should be 0.
 
 	printf("sum : 0x%llx \n",sum);
 
