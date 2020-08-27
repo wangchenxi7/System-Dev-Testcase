@@ -50,7 +50,8 @@ SemeruMemPoolAlignment="1G"
 # Original jdk parameters
 MemSize="1024M"
 
-RegionSize="64m"
+#RegionSize="64m"
+RegionSize="512m"
 TLABSize="4096"
 
 STWParallelThread=1

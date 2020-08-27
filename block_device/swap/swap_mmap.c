@@ -69,8 +69,8 @@ int main(){
 				
 	int type = 0x1;
 	uint64_t request_addr 	= 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
-	//uint64_t size  		= 0x20000000;	// 512MB, for uint64_t, length is 0x4,000,000
-	uint64_t size  		= 0x3000000;	// 48MB, for uint64_t, length is 0x4,000,000
+	uint64_t size  		= 0x100000000;	// 512MB, for uint64_t, length is 0x4,000,000
+	//uint64_t size  		= 0x3000000;	// 48MB, for uint64_t, length is 0x4,000,000
 	char* user_buff;
 	uint64_t i;
 	uint64_t sum = 0;

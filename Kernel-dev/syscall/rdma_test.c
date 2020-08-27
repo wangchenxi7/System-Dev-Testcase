@@ -72,8 +72,8 @@ int main(){
 				
 	int type = 0x1;
 	uint64_t request_addr 	= 0x400000000000; // start of RDMA meta space
-	//uint64_t size  					=	0x2000;		// 4KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
-	uint64_t size  					=	0x40000; // 64(30+30+4) pages, test scatter-gather design.
+	//uint64_t size  					=	0x2000;		// 8KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
+	uint64_t size  					=	0x2000000; // 64(30+30+4) pages, test scatter-gather design.
 	char* user_buff;
 	uint64_t i;
 	uint64_t initial_val		= -1;  //
@@ -131,7 +131,7 @@ int main(){
   syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, user_buff, size);
   printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
   
-	sleep(5);
+	sleep(3);
 
 
 	// busy checking the first uint64_t value of the buffer.
