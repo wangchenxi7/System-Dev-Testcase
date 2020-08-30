@@ -70,10 +70,11 @@ char* commit_anon_memory(char* start_addr, uint64_t size, bool exec) {
 
 int main(){
 				
-	int type = 0x1;
+	int type = 0x1;		// type 0x1 write, 0x2 read
+	int target_server = 0x0;   // memory server id. e.g. 0, 1
 	uint64_t request_addr 	= 0x400000000000; // start of RDMA meta space
 	//uint64_t size  					=	0x2000;		// 8KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
-	uint64_t size  					=	0x2000000; // 64(30+30+4) pages, test scatter-gather design.
+	uint64_t size  					=	0x40000000; // 64(30+30+4) pages, test scatter-gather design.
 	char* user_buff;
 	uint64_t i;
 	uint64_t initial_val		= -1;  //
@@ -107,8 +108,8 @@ int main(){
 	//
 	type = 0x2;
 	printf("Before syscall - RDMA Write, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
-  syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, user_buff, size);
-  printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
+  syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, target_server, user_buff, size);
+  printf("System call id SYS_do_semeru_rdma_ops, type 0x%x, memory server %d, returned %d \n", type, target_server, syscall_ret);
 
 
 
@@ -128,8 +129,8 @@ int main(){
 
 	printf("Before syscall - RDMA read, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
 
-  syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, user_buff, size);
-  printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
+  syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, target_server, user_buff, size);
+  printf("System call id SYS_do_semeru_rdma_ops, type 0x%x , memory server %d returned %d \n", type,  target_server, syscall_ret);
   
 	sleep(3);
 
