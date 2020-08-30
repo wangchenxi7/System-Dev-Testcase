@@ -4,8 +4,8 @@ CFLAGS= -O0 -g -lpthread
 
 
 all:
-	cc ${CFLAGS} user_fault_handler.c -o user_fault_handler.o
+	cc ${CFLAGS} user_fault_handler_poll.c -o user_fault_handler_poll.o
 
 
 clean:
-	rm user_fault_handler.o
+	rm user_fault_handler_poll.o

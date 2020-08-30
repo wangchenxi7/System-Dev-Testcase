@@ -1,8 +1,14 @@
 /**
  * syscall mremap 163
+ * void *mremap(void *old_address, size_t old_size,
+ *                   size_t new_size, int flags, ... void *new_address);
  * 
- * 1) Extend current virtual memory range
- * 2) Remap the virtual memory range to another range of memory
+ * Extend current virtual memory range
+ * https://man7.org/linux/man-pages/man2/mremap.2.html
+ * 
+ * 1) Copy data from old buffer to new buffer. The data of new buffer will be overrided.
+ * 2) Unmap the old buffer.
+ * 3) If success, return the address of new buffer.
  * 
  */
 
@@ -77,7 +83,7 @@ int main(int argc, char* argv[]){
 
   char* target_buff;
 	uint64_t target_request_addr 	= 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
-	uint64_t target_size  					=	0x10000;		// 64KB, for uint64_t, length is 0x400
+	uint64_t target_size 					=	0x10000;		// 64KB, for uint64_t, length is 0x400
 
 	char* user_buff;
   uint64_t user_buffer_addr = 0x20000000; // 512MB
