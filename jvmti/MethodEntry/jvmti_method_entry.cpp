@@ -1,14 +1,17 @@
 /**
  *  Execute the function defined in the agent, OnLoad phase.
  * 
+ *  Output:
+ *      MethodEntry,Method Entry NAME:getContentLength SIG:()I GEN:(null) entered ==>
+ *      MethodEntry,Method Entry NAME:read SIG:([BII)I GEN:(null) entered ==>
  * 
- * Current problems:
- *      MethodEntry doesn't work ?
+ *  Here are about 80k times function invokation.
+ * 
  */
 
 
 
-#include "jvmti_hello_world.h"
+#include "jvmti_method_entry.h"
 
 
 
@@ -62,8 +65,6 @@ Agent_OnLoad(JavaVM *jvm, char *options, void *reserved){
   //callbacks.MethodExit = &MethodExit;
 
   // register the callback function
-  // [?] The MethodEntry doesn't work ??
-  //
   error = (jvmti)->SetEventCallbacks(&callbacks, (jint)sizeof(callbacks));
   if(error != JNI_OK){
     return JNI_ERR;
@@ -105,6 +106,11 @@ void JNICALL MethodEntry(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread, j
   char* generic_p;
 
   error = (jvmti_env)->GetMethodName(method, &name_p, &signature_p, &generic_p);
+
+  // filter the method with NULL parameters
+  // e.g., signature is ()V / ()I.
+  if(signature_p[1] == ')')
+    return;
 
   printf("%s,Method Entry NAME:%s SIG:%s GEN:%s entered ==>\n", __func__, name_p, signature_p, generic_p);
 }

@@ -2,7 +2,7 @@
 
 
 
-JVMTILib="jvmti_hello_world"
+JVMTILib="jvmti_method_entry"
 
 JavaApp="HelloWorld"
 

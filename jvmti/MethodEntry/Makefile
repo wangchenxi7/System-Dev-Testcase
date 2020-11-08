@@ -11,8 +11,8 @@ INCLUDE_PATH= -I "/mnt/ssd/wcx/jdk12u-self-build/jvm/openjdk-12.0.2-internal/inc
 
 
 all:
-	cc ${CFLAGS}  ${INCLUDE_PATH} -c jvmti_hello_world.cpp -o  jvmti_hello_world.o
-	cc -shared -o libjvmti_hello_world.so jvmti_hello_world.o
+	cc ${CFLAGS}  ${INCLUDE_PATH} -c jvmti_method_entry.cpp -o  jvmti_method_entry.o
+	cc -shared -o libjvmti_method_entry.so jvmti_method_entry.o
 clean:
-	rm jvmti_hello_world.o
-	rm libjvmti_hello_world.so
+	rm jvmti_method_entry.o
+	rm libjvmti_method_entry.so
