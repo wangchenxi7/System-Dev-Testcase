@@ -98,6 +98,11 @@ void Agent_OnUnload(JavaVM *vm){
  * Callback function,
  *  print the executed method's information.
  *  
+ * 
+ * More Explanations:
+ *  jmethodID, and jfieldID to refer to Java objects, methods, and object fields respectively.
+ *  They are opaque structures. 
+ * 
  */
 void JNICALL MethodEntry(jvmtiEnv *jvmti_env, JNIEnv* jni_env, jthread thread, jmethodID method){
   jvmtiError error;
