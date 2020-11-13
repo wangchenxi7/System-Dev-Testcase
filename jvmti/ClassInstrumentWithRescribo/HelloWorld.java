@@ -5,7 +5,14 @@ class HelloWorld {
     System.out.println("Java Hello world!");
 
     testFunc t = new testFunc();
-    System.out.println( "testFunc.a : " + t.getContent() );
+    t.storeContent(10);
+    int val = t.getContent();
+    System.out.println( "testFunc t.a : " + val );
+
+    testFunc m = new testFunc();
+    m.duplicate(t);
+    val = m.getContent();
+    System.out.println( "testFunc m.a : " + val );
 
   }
 
@@ -15,8 +22,16 @@ class HelloWorld {
 
 class testFunc{
 
-	int a = 5;
+	int a = 0;
   
+  void storeContent(int val){
+    this.a = val;
+  }
+
+  void duplicate(testFunc obj){
+    this. a = obj.a;
+  }
+
   int getContent(){
     return a;
   }

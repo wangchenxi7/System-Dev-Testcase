@@ -102,15 +102,16 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
                                unsigned char** new_class_data) {
         
 	const uint8_t* buffer = class_data;
+	size_t i;
 	ClassFile class_file(&buffer);
 	assert(((buffer - class_data) == class_data_len)
 	       && "Incomplete class file read");
 
 	ConstantPool* constant_pool = class_file.get_constant_pool();
-	uint16_t o1_methodref_index = constant_pool->get_or_create_methodref_index(
+	uint16_t prefetch_method_index = constant_pool->get_or_create_methodref_index(
 		"java/lang/System",
-		"test_with_parameter_obj",
-		"(Ljava/lang/Object;)V"
+		"testWithParameter",
+		"(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;I)V"
 	);
 
 	Methods* methods = class_file.get_methods();
@@ -118,32 +119,117 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 
 		// For some method, java.lang.Object can't be initialized ?
 		// e.g., Type uninitializedThis (current frame, stack[0]) is not assignable to 'java/lang/Object'
-		if (method->is_name("<clinit>") || method->is_name("<init>") ) {
+		if (method->is_name("<clinit>") || method->is_name("<init>") || method->is_name("main") ) {
 			continue;
 		}
 
+
+
 		// FIXME: Bad hack to look for an object as the first arugment
-		if (method->is_static()) {
-			ConstantPoolUtf8* descriptor = method->get_descriptor_utf8();
-			if (descriptor->get_data()[1] != 'L') {
-				continue;
-			}
+		// if (method->is_static()) {
+		// 	ConstantPoolUtf8* descriptor = method->get_descriptor_utf8();
+		// 	if (descriptor->get_data()[1] != 'L') {
+		// 		continue;
+		// 	}
+		// }
+
+
+		// #1 Skip some useless functions
+		// method descriptor is the function signatures
+		// e.g., (Ljava/lang/Object;)V
+		// ( paramters, separated by ; ), V : Void , the return value type
+		ConstantPoolUtf8* descriptor = method->get_descriptor_utf8();
+		if (descriptor->get_data()[1] == ')') {
+			// skip non-parameter functions
+			// e.g., ()V
+			continue;
 		}
 
+		
+		// #3, prepare to instrument parameters
 		Code* code = method->get_code();
 		if (!code) {
 			continue;
 		}
-		code->set_max_stack(code->get_max_stack() + 1);
+		code->set_max_stack(code->get_max_stack() + 6);
 		auto inserter = code->create_front_inserter();
-		//inserter.insert_nop();
-		inserter.insert_aload_0();
-		inserter.insert_invokestatic(o1_methodref_index);
+
+		
+		// #3 Find all the object parameters, and push them into prefetch queue.
+		size_t descriptor_size = descriptor->get_length();
+		uint8_t param_count = 0;  // the local variable index
+		bool obj_ref = false;
+		uint16_t inserted_obj_ref_count= 0;
+
+
+		for(i=0; i< descriptor_size; i++){
+			if(descriptor->get_data()[i] == 'L' ){
+				// find an object instance
+				obj_ref = true;
+			}else if(descriptor->get_data()[i] == ';'){
+				// end of a parameter
+				
+				// Find a object refer, push into prefetch queu
+				// L****;
+				if(obj_ref){
+
+					//inserter.insert_nop();
+					//inserter.insert_aload_0();
+					inserter.insert_aload(param_count); // aload index; load the [index] local variables into stack.
+
+					printf("Find a object ref, paramter[%lu] \n", param_count);
+					obj_ref = false; // end of instrumenting an parameter
+					inserted_obj_ref_count++ ; // after instrumenting any parameters, instrument the function.
+				}
+				
+				// Warning : Even if there are any constant paramters before the L##; the count of local variable should be correct.
+				// Double check this assumption.
+				param_count++;
+			}else if(descriptor->get_data()[i] == ')'){
+				// end of signature scanning
+				// no need to scan the return values
+				break;
+			}
+
+			// nothing to do.
+		}
+
+		// # 4, if didn't push any variables into stack, skip
+		if(inserted_obj_ref_count == 0)
+			continue;
+
+
+		// #5, Update the modified function
+		//		 The profiling functions assume less or equal than 5 object references are passed in.
+		//		 The 6h parameter is the number of pushed object references.
+
+		for( i = inserted_obj_ref_count; i< 5; i++){
+			// Push NULL pointers into stack to be consumed by the function.
+			//inserter.insert_aload_0();
+			// how to build the aconst_null bytecode ?
+			
+			// debug - insert some useless obj references
+			inserter.insert_aload(param_count-1);
+		}
+
+		// #5.2 push the number of valid prameters
+		// e.g., bipush 10 /sipush
+		inserter.insert_sipush(inserted_obj_ref_count);
+
+		inserter.insert_invokestatic(prefetch_method_index);
+
+		//debug
+		printf("Instrumented method: ");
+		method->print();
+		printf("descriptor:");
+		descriptor->print();
+
+
 		code->sync();
 		while (code->fix_offsets()) {
 			code->sync();
 		}
-	}
+	} // end of for : method
 
 	uint32_t byte_size = class_file.get_byte_size();
 	assert((byte_size <= INT32_MAX) && "Class len must fit in an int");

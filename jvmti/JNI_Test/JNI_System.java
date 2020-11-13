@@ -13,7 +13,7 @@ public class JNI_System {
 
     // Test#2, Pass object instance into JVM via JNI call.
     testFunc test_obj = new testFunc();
-    System.test_with_parameter_obj(test_obj);
+    System.testWithParameter(test_obj,null, null, null, null, 1);
     
   }
 
