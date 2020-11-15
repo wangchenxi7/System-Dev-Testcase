@@ -125,15 +125,6 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 
 
 
-		// FIXME: Bad hack to look for an object as the first arugment
-		// if (method->is_static()) {
-		// 	ConstantPoolUtf8* descriptor = method->get_descriptor_utf8();
-		// 	if (descriptor->get_data()[1] != 'L') {
-		// 		continue;
-		// 	}
-		// }
-
-
 		// #1 Skip some useless functions
 		// method descriptor is the function signatures
 		// e.g., (Ljava/lang/Object;)V
@@ -205,11 +196,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 
 		for( i = inserted_obj_ref_count; i< 5; i++){
 			// Push NULL pointers into stack to be consumed by the function.
-			//inserter.insert_aload_0();
-			// how to build the aconst_null bytecode ?
-			
-			// debug - insert some useless obj references
-			inserter.insert_aload(param_count-1);
+			inserter.insert_aconst_null();
 		}
 
 		// #5.2 push the number of valid prameters
