@@ -119,10 +119,9 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 
 		// For some method, java.lang.Object can't be initialized ?
 		// e.g., Type uninitializedThis (current frame, stack[0]) is not assignable to 'java/lang/Object'
-		if (method->is_name("<clinit>") || method->is_name("<init>") || method->is_name("main") ) {
+		if ( function_filtered(method) ){
 			continue;
 		}
-
 
 
 		// #1 Skip some useless functions
@@ -155,6 +154,12 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 
 		for(i=0; i< descriptor_size; i++){
 			if(descriptor->get_data()[i] == 'L' ){
+
+				//debug - skip object array
+				if(i>0 && descriptor->get_data()[i-1] == '[' ){
+					continue;
+				}
+
 				// find an object instance
 				obj_ref = true;
 			}else if(descriptor->get_data()[i] == ';'){
@@ -168,7 +173,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 					//inserter.insert_aload_0();
 					inserter.insert_aload(param_count); // aload index; load the [index] local variables into stack.
 
-					printf("Find a object ref, paramter[%lu] \n", param_count);
+					printf("Find an object ref for paramter[%lu] \n", param_count);
 					obj_ref = false; // end of instrumenting an parameter
 					inserted_obj_ref_count++ ; // after instrumenting any parameters, instrument the function.
 				}
@@ -229,3 +234,29 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 
 }
 
+
+
+/**
+ * The failed corner cases.
+ * Skip them.
+ * 
+ */
+bool function_filtered(std::unique_ptr<Method> & method){
+
+	bool skip = false;
+
+	
+
+	if (method->is_name("<clinit>") || method->is_name("<init>") || method->is_name("main") ) {
+		skip = true;
+	}else if(method->is_name("linkToTargetMethod")){
+		skip = true;
+	}
+
+
+
+
+ret:
+	return skip;
+
+}

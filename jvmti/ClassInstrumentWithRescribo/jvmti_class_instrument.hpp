@@ -37,3 +37,15 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* env,
                                const unsigned char* class_data,
                                jint* new_class_data_len,
                                unsigned char** new_class_data);
+
+
+// Debug functions
+
+/**
+ * The failed corner cases.
+ * Skip them.
+ * 
+ * Parameter : unique_ptr, the smart pointer. It can't be coppied.
+ * 
+ */
+bool function_filtered(std::unique_ptr<Method> & method);
