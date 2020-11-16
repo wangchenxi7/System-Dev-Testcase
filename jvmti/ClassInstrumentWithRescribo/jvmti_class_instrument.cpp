@@ -124,6 +124,15 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 		}
 
 
+
+		// debug, skip the non-static method 
+		if (method->is_static() == false) {
+			//skip
+			continue;
+		}
+
+
+
 		// #1 Skip some useless functions
 		// method descriptor is the function signatures
 		// e.g., (Ljava/lang/Object;)V
@@ -165,7 +174,9 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 		size_t descriptor_size = descriptor->get_length();
 		uint8_t param_count = 0;  // the local variable index
 		bool obj_ref = false;
+		bool obj_array = false;
 		uint16_t inserted_obj_ref_count= 0;
+
 
 		// parse the signature
 		// first character is the '(', skip it.
@@ -174,10 +185,10 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 			if(descriptor->get_data()[i] == '[' ){
 				// 1) object array
 				// Object array is treated as normal object instance.
-				obj_ref = true;
+				obj_array = true;
 				continue; // not count a new local variable
 
-			}else if(descriptor->get_data()[i] == 'L' ){
+			}else if( obj_array == false && descriptor->get_data()[i] == 'L' ){
 				// 2) object instance
 				//		safe to be override by object array descriptor.
 				obj_ref = true;
@@ -188,16 +199,40 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 				
 				// Find a object refer, push into prefetch queu
 				// L****; or [L**;
+				// Debug skipped object array for now
+				//if(obj_ref || obj_array ){
 				if(obj_ref){
 					//inserter.insert_nop();
 					//inserter.insert_aload_0();
 					inserter.insert_aload(param_count); // aload index; load the [index] local variables into stack.
 
-					printf("Find an object ref for paramter[%lu] \n", param_count);
+					printf("Find an object ref for paramter[%lu]. obj_ref ? %d \n", param_count, obj_ref );
 					obj_ref = false; // end of instrumenting an parameter
 					inserted_obj_ref_count++ ; // after instrumenting any parameters, instrument the function.
 				}
+
+				param_count++;
 				
+			}else if(descriptor->get_data()[i] == 'D'){
+				// Double, consume 2 local variable slots
+				param_count+=2;
+			}else if(descriptor->get_data()[i] == 'J'){
+				// long, consume 2 local variable slots
+				param_count+=2;
+			
+			}else if(descriptor->get_data()[i] == 'I'){
+				// Int, consume 1 local variable slots
+				param_count++;
+			
+			}else if(descriptor->get_data()[i] == 'S'){
+				// Short, consume 1 local variable slot
+				param_count++;
+			}else if(descriptor->get_data()[i] == 'F'){
+				// Float, consume 1 local variable slot
+				param_count++;
+			}else if(descriptor->get_data()[i] == 'Z'){
+				// Boolean, consume 1 local variable slot
+				param_count++;
 
 			}else if(descriptor->get_data()[i] == ')'){
 				// end of signature scanning
@@ -205,12 +240,8 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 				break;
 			}
 
-			// 1) Skip the parsing procedure of object instance
-			// 2) All the primitive variables are counted as local variables.
-			// One character for each primitive symbols.
-			if(obj_ref == false){
-				param_count++;
-			}
+			//nothing to do.
+
 		} // end of for, parsing the signature
 
 		// # 4, if didn't push any variables into stack, skip

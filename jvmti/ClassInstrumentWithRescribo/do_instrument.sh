@@ -7,8 +7,8 @@ JVMTILib="jvmti_class_instrument"
 
 if [ -z "${1}" ]
 then
-  JavaApp="HelloWorld"
-  #JavaApp="Simple"
+  #JavaApp="HelloWorld"
+  JavaApp="Simple"
   echo "Run the default application: ${JavaApp}"
 else
   JavaApp="$1"
