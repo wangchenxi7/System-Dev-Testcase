@@ -19,6 +19,7 @@ public class Simple {
     public static void region_loop(int loop_num, objItem[] array) {
   
       int count = 0;
+      
       double tmp_double = 2.1;
       char tmp_char = 'a';
       boolean tmp_bool = true;
@@ -28,8 +29,7 @@ public class Simple {
       int end = 1;
       
       System.out.println(count + " " + tmp_double + " " + tmp_char +  " " +tmp_bool +  " " +tmp_float + " " + end);
-
-      /*
+      
 
       do{ 
         // 1) Check object array assignment : aastore
@@ -97,8 +97,6 @@ public class Simple {
   
       System.out.println("");
       System.out.println("****************PASSED****************");
-
-      */
 
     }
   

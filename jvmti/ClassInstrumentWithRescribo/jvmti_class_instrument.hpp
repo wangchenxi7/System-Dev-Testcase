@@ -23,6 +23,15 @@
 
 using namespace project_rescribo;
 
+
+
+// Macros
+
+#define DEBUG_INSTRUMENT_BRIEF 1
+//#define DEBUG_INSTRUMENT_DETAIL 1
+
+
+
 jint Agent_OnLoad(JavaVM *jvm, char *options, void *reserved);
 void Agent_OnUnload(JavaVM *vm);
 
