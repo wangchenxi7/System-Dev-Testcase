@@ -141,34 +141,54 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 		if (!code) {
 			continue;
 		}
-		code->set_max_stack(code->get_max_stack() + 6);
+		code->set_max_stack(code->get_max_stack() + 6); // make enough space for 6 method paramters.
 		auto inserter = code->create_front_inserter();
 
 		
-		// #3 Find all the object parameters, and push them into prefetch queue.
+		// #3 Parse the method signature 
+		// Find all the object parameters, and push them into prefetch queue.
+		// descriptors for local viriable
+		// Primitives (Sinlge charactor)
+		//	short -> S;
+		//	int -> I; 
+		//	long -> J;
+		//	double -> D;
+		//	float -> F;
+		//	boolean	-> Z;
+		//	
+		//	
+		// Object instance
+		// 	start with L, end with ; e.g., L***;
+		//
+		// Object array
+		//	start with [, e.g., [L***;
 		size_t descriptor_size = descriptor->get_length();
 		uint8_t param_count = 0;  // the local variable index
 		bool obj_ref = false;
 		uint16_t inserted_obj_ref_count= 0;
 
+		// parse the signature
+		// first character is the '(', skip it.
+		for(i=1; i< descriptor_size; i++){
 
-		for(i=0; i< descriptor_size; i++){
-			if(descriptor->get_data()[i] == 'L' ){
-
-				//debug - skip object array
-				if(i>0 && descriptor->get_data()[i-1] == '[' ){
-					continue;
-				}
-
-				// find an object instance
+			if(descriptor->get_data()[i] == '[' ){
+				// 1) object array
+				// Object array is treated as normal object instance.
 				obj_ref = true;
+				continue; // not count a new local variable
+
+			}else if(descriptor->get_data()[i] == 'L' ){
+				// 2) object instance
+				//		safe to be override by object array descriptor.
+				obj_ref = true;
+				continue; // not count a new local variable
+
 			}else if(descriptor->get_data()[i] == ';'){
-				// end of a parameter
+				// end of an object/object array descriptor
 				
 				// Find a object refer, push into prefetch queu
-				// L****;
+				// L****; or [L**;
 				if(obj_ref){
-
 					//inserter.insert_nop();
 					//inserter.insert_aload_0();
 					inserter.insert_aload(param_count); // aload index; load the [index] local variables into stack.
@@ -178,17 +198,20 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 					inserted_obj_ref_count++ ; // after instrumenting any parameters, instrument the function.
 				}
 				
-				// Warning : Even if there are any constant paramters before the L##; the count of local variable should be correct.
-				// Double check this assumption.
-				param_count++;
+
 			}else if(descriptor->get_data()[i] == ')'){
 				// end of signature scanning
 				// no need to scan the return values
 				break;
 			}
 
-			// nothing to do.
-		}
+			// 1) Skip the parsing procedure of object instance
+			// 2) All the primitive variables are counted as local variables.
+			// One character for each primitive symbols.
+			if(obj_ref == false){
+				param_count++;
+			}
+		} // end of for, parsing the signature
 
 		// # 4, if didn't push any variables into stack, skip
 		if(inserted_obj_ref_count == 0)
@@ -215,6 +238,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* jvmti,
 		method->print();
 		printf("descriptor:");
 		descriptor->print();
+		printf("<---END\n");
 
 
 		code->sync();
