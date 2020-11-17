@@ -153,6 +153,8 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 		//	double -> D;
 		//	float -> F;
 		//	boolean	-> Z;
+		//  byte	-> B;
+		//  char  -> C;
 		//
 		//
 		// Object instance
@@ -177,12 +179,15 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 
 		// parse the signature
 		// first character is the '(', skip it.
-		for (i = 1; i < descriptor_size; i++)
+		for (i = 1; i < descriptor_size  && inserted_obj_ref_count < PARAM_NUM ; i++)
 		{
 
 			if (descriptor->get_data()[i] == '[')
 			{
 				// 1) object array
+				//  	[Warning] [ is a symbol for array. NOT necessarily an object array.
+				//							 It may also be a primitive array. .e.g, char[], which is [C
+				//
 				// Object array is treated as normal object instance.
 				obj_array = true;
 				continue; // not count a new local variable
@@ -275,6 +280,22 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					printf("Find an Z, ++, to %u\n", param_count);
 					#endif
 				}
+				else if (descriptor->get_data()[i] == 'C')
+				{
+					// Char, consume 1 local variable slot
+					param_count++;
+					#ifdef DEBUG_INSTRUMENT_DETAIL
+					printf("Find an C, ++, to %u\n", param_count);
+					#endif
+				}
+				else if (descriptor->get_data()[i] == 'B')
+				{
+					// Byte, consume 1 local variable slot
+					param_count++;
+					#ifdef DEBUG_INSTRUMENT_DETAIL
+					printf("Find an B, ++, to %u\n", param_count);
+					#endif
+				}
 
 			} // end of parsing primitives
 
@@ -298,7 +319,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 		//		 The profiling functions assume less or equal than 5 object references are passed in.
 		//		 The 6h parameter is the number of pushed object references.
 
-		for (i = inserted_obj_ref_count; i < 5; i++)
+		for (i = inserted_obj_ref_count; i < PARAM_NUM; i++)
 		{
 			// Push NULL pointers into stack to be consumed by the function.
 			inserter.insert_aconst_null();
