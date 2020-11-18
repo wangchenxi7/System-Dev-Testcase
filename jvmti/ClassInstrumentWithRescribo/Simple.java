@@ -20,7 +20,17 @@ public class Simple {
   
       int count = 0;
       
-  
+      double tmp_double = 2.1;
+      char tmp_char = 'a';
+      boolean tmp_bool = true;
+      float tmp_float = 1.1f;
+      long tmp_long = 1l;
+      short tmp_short = 1;
+      int end = 1;
+      
+      System.out.println(count + " " + tmp_double + " " + tmp_char +  " " +tmp_bool +  " " +tmp_float + " " + end);
+      
+
       do{ 
         // 1) Check object array assignment : aastore
         System.out.println("Loop "+ count +", Phase 1 start : Do object array element assignment, aastore \n");
@@ -87,6 +97,7 @@ public class Simple {
   
       System.out.println("");
       System.out.println("****************PASSED****************");
+
     }
   
   

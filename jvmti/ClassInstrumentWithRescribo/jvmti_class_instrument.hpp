@@ -23,6 +23,23 @@
 
 using namespace project_rescribo;
 
+
+//
+// Macros
+//
+
+// Control Options
+#define DEBUG_INSTRUMENT_BRIEF 1
+//#define DEBUG_INSTRUMENT_DETAIL 1
+
+
+
+// Number definitions
+#define PARAM_NUM   5
+
+
+
+
 jint Agent_OnLoad(JavaVM *jvm, char *options, void *reserved);
 void Agent_OnUnload(JavaVM *vm);
 
@@ -39,7 +56,6 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* env,
                                unsigned char** new_class_data);
 
 
-// Debug functions
 
 /**
  * The failed corner cases.
@@ -49,3 +65,12 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* env,
  * 
  */
 bool function_filtered(std::unique_ptr<Method> & method);
+
+bool parse_object_array(int &i, onstantPoolUtf8 *descriptor );
+
+
+
+
+//
+// Debug Functions
+//
