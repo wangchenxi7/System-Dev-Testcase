@@ -101,7 +101,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 {
 
 	const uint8_t *buffer = class_data;
-	size_t i,j;
+	int i,j;
 	ClassFile class_file(&buffer);
 	assert(((buffer - class_data) == class_data_len) && "Incomplete class file read");
 
@@ -182,34 +182,35 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 		for (i = 1; i < descriptor_size  && inserted_obj_ref_count < PARAM_NUM ; i++)
 		{
 
+			//1) Find an array. Could be primitive array or object array.
 			if (descriptor->get_data()[i] == '[')
 			{
-				// 1) object array
-				//  	[Warning] [ is a symbol for array. NOT necessarily an object array.
-				//							 It may also be a primitive array. .e.g, char[], which is [C
-				//
-				// Object array is treated as normal object instance.
-				obj_array = true;
-				continue; // not count a new local variable
-			}
-			else if (obj_array == false && descriptor->get_data()[i] == 'L')
-			{
-				// 2) object instance
-				//		safe to be override by object array descriptor.
-				obj_ref = true;
-				continue; // not count a new local variable
-			}
-			else if (descriptor->get_data()[i] == ';')
-			{
-				// end of an object/object array descriptor
+				obj_array = parse_object_array(descriptor, i);
+				if(obj_array){
+					// Push an local variable into the stack
+					inserter.insert_aload(param_count + non_static_local_val_offset); // aload index; load the [index] local variables into stack.
+					#ifdef DEBUG_INSTRUMENT_BRIEF
+						printf("Find an object ref for paramter[%u]. obj_ref ? %d , non-static-offset %u \n", 
+																												param_count + non_static_local_val_offset, 
+																												obj_ref, 
+																												non_static_local_val_offset);
+					#endif
+				
 
-				// Find a object refer, push into prefetch queu
-				// L****; or [L**;
-				// Debug skipped object array for now
-				if(obj_ref || obj_array )
-				{
-					//inserter.insert_nop();
-					//inserter.insert_aload_0();
+					obj_array = false;
+					inserted_obj_ref_count++; // after instrumenting any parameters, instrument the function.				
+				}
+
+				// update local variable index
+				param_count++;
+				continue; // consume the ;
+			}
+			else if (descriptor->get_data()[i] == 'L' && descriptor->get_data()[i-1] != '[' )
+			{
+				// 2) object instance	
+				obj_ref = parse_object_instance(descriptor, i);
+				if(obj_ref){
+					// Push an local variable into the stack
 					inserter.insert_aload(param_count + non_static_local_val_offset); // aload index; load the [index] local variables into stack.
 					#ifdef DEBUG_INSTRUMENT_BRIEF
 						printf("Find an object ref for paramter[%u]. obj_ref ? %d , non-static-offset %u \n", 
@@ -218,16 +219,44 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 																												non_static_local_val_offset);
 					#endif
 
-					obj_ref = false; // end of instrumenting an parameter
-					obj_array = false;
-					inserted_obj_ref_count++; // after instrumenting any parameters, instrument the function.
+					obj_ref = false;
+					inserted_obj_ref_count++; // after instrumenting any parameters, instrument the function.		
 				}
 
+				// update local variable index
 				param_count++;
-				//printf("Find an ;, ++, to %u\n", param_count);
+				continue;  // consume the ;
 			}
+			// else if (descriptor->get_data()[i] == ';')
+			// {
+			// 	// end of an object/object array descriptor
 
-			//
+			// 	// Find a object refer, push into prefetch queu
+			// 	// L****; or [L**;
+			// 	// Debug skipped object array for now
+			// 	if(obj_ref || obj_array )
+			// 	{
+			// 		//inserter.insert_nop();
+			// 		//inserter.insert_aload_0();
+			// 		inserter.insert_aload(param_count + non_static_local_val_offset); // aload index; load the [index] local variables into stack.
+			// 		#ifdef DEBUG_INSTRUMENT_BRIEF
+			// 			printf("Find an object ref for paramter[%u]. obj_ref ? %d , non-static-offset %u \n", 
+			// 																									param_count + non_static_local_val_offset, 
+			// 																									obj_ref, 
+			// 																									non_static_local_val_offset);
+			// 		#endif
+
+			// 		obj_ref = false; // end of instrumenting an parameter
+			// 		obj_array = false;
+			// 		inserted_obj_ref_count++; // after instrumenting any parameters, instrument the function.
+			// 	}
+
+			// 	param_count++;
+			// 	//printf("Find an ;, ++, to %u\n", param_count);
+			// }
+
+			// Parse the next Signature symbols
+			// [XX] according to current design, both obj_ref and obj_array are false, if reach here.
 			// Go to parse the primives
 			if ((obj_ref || obj_array) == false)
 			{
@@ -375,4 +404,152 @@ bool function_filtered(std::unique_ptr<Method> &method)
 
 ret:
 	return skip;
+}
+
+
+/**
+ *  Recognize the objct array from the method signature.
+ * 	Object array is treated as normal object instance.
+ * 
+ * e.g., 
+ * 	Lcom/ctc/wstx/io/WstxInputSource;Ljava/lang/String;[CIILjavax/xml/stream/Location;Ljava/net/URL;
+ * 	
+ * 	object instance:
+ * 		Lcom/ctc/wstx/io/WstxInputSource;
+ * 		Ljava/lang/String;
+ * 		Ljavax/xml/stream/Location;
+ * 		Ljava/net/URL;
+ * 
+ * 	Primivies :
+ * 		[C	// primitive array
+ * 		I		// single primitive
+ * 		I
+ * 		L
+ * 
+ *	Consume the string within the singnature descriptor,
+ *	Update the idnex of descriptor string, i
+ *	Update the current parameter counter
+ * 	 
+ * 	End with a another kind of parameter.
+ * 	e.g.,
+ * 		primitive types,
+ * 		;
+ * 
+ *
+ * 	Return :
+ * 		True or False : if found an object array parameter
+ * 
+ * 	Warning : 
+ * 		[ is a symbol for array. NOT necessarily an object array.
+ *			It may also be a primitive array. .e.g, char[], which is [C
+ * 
+ */
+bool parse_object_array(ConstantPoolUtf8 *descriptor, int &descriptor_index ){
+
+	bool find_obj_array = false;
+
+	// Entrance 
+	// 	Found a character, [
+	#ifdef DEBUG_INSTRUMENT_BRIEF
+	 if(descriptor->get_data()[descriptor_index] != '[' ){
+		 printf("ERROR in %s\n",__func__);
+		 return false;
+	 }
+	#endif
+
+	//	The first character should be a primitive or class's name
+	descriptor_index++; // consume the [
+	descriptor_index++; // Read the next charracter. The character bhind [ can't be used as the flag of primitives.
+
+	do{
+
+		if( is_primive_type(descriptor, descriptor_index) == true  ){
+			// this is a primitive array,
+			// return false
+			goto ret;
+		}
+
+		descriptor_index ++; // consume one more symbol
+
+	}while(descriptor->get_data()[descriptor_index] != ';' );
+	
+	// Leave the ; to be consumed by for loop
+
+
+	// if reach here, find an object array
+	// return true
+	find_obj_array = true;
+
+ret:
+	return find_obj_array;
+}
+
+
+/**
+ * Parse an object instance.
+ * e.g., Ljava/lang/String;
+ * 
+ * The object instances all start with a L.
+ * Exclude the object array here, which starts with [L
+ * 
+ * 
+ * Return Value
+ * 		true : reconize an object instance successfully
+ * 		false : exception happens
+ * 
+ */
+bool parse_object_instance(ConstantPoolUtf8 *descriptor, int &descriptor_index ){
+	// Entrance 
+	// Found a character, L
+	descriptor_index++; // consume the L
+
+	do{
+
+		descriptor_index ++; // consume one more symbol
+	}while(descriptor->get_data()[descriptor_index] != ';' );
+
+	// Leave the ; to be consumed by for loop
+
+	return true;
+}
+
+
+/**
+ * To judge if current Signature character is a primitve type
+ * 
+ * Primitives (Sinlge charactor)
+ *	 	short -> S;
+ *		int -> I;
+ *		long -> J;
+ *		double -> D;
+ *		float -> F;
+ *		boolean	-> Z;
+ *		byte	-> B;
+ *		char  -> C;
+ *
+ * More Explanation
+ *
+ */
+bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index ){
+
+	switch(descriptor->get_data()[descriptor_index]) {
+
+		case 'S':
+		case 'I':
+		case 'F':
+		case 'Z':
+		case 'B':
+		case 'C':
+		case 'J':
+		case 'D':
+			return true;
+			break;
+
+		default:
+			return false;
+
+	}// end of switch
+
+	
+	return false;
 }
