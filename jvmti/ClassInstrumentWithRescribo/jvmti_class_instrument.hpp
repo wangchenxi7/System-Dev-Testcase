@@ -66,7 +66,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* env,
  */
 bool function_filtered(std::unique_ptr<Method> & method);
 
-bool parse_object_array(int &i, onstantPoolUtf8 *descriptor );
+bool parse_object_array(int &i, ConstantPoolUtf8 *descriptor );
 
 
 
