@@ -66,9 +66,10 @@ void JNICALL ClassFileLoadHook(jvmtiEnv* env,
  */
 bool function_filtered(std::unique_ptr<Method> & method);
 
-bool parse_object_array(int &i, onstantPoolUtf8 *descriptor );
+bool parse_object_array(ConstantPoolUtf8 *descriptor, int &i );
+bool parse_object_instance(ConstantPoolUtf8 *descriptor, int &descriptor_index );
 
-
+bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index );
 
 
 //
