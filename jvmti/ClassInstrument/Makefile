@@ -7,7 +7,7 @@
 CFLAGS= -fPIC
 
 # Needed header files : jni.h, jni_md.h, jvmti.h
-INCLUDE_PATH= -I "/mnt/ssd/wcx/jdk12u-self-build/jvm/openjdk-12.0.2-internal/include" -I "/mnt/ssd/wcx/jdk12u-self-build/jvm/openjdk-12.0.2-internal/include/linux"
+INCLUDE_PATH= -I "/mnt/ssd/haoran/jdk12u-dev/build/linux-x86_64-server-release/jdk/include" -I "/mnt/ssd/haoran/jdk12u-dev/build/linux-x86_64-server-release/jdk/include/linux"
 
 
 all:

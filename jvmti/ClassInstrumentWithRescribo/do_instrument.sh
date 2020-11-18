@@ -19,7 +19,8 @@ fi
 # Options
 
 # Log 
-LogInfo="-Xlog:prefetch=debug"
+LogInfo="-Xmx128M -Xms128M -XX:PrefetchThreads=1 -XX:PrefetchNum=100 -XX:PrefetchSize=1000 -XX:PrefetchQueueThreshold=100 -XX:+PrintGCDetails"
+#-Xlog:prefetch=debug
 
-
-LD_LIBRARY_PATH=`pwd`:${LD_LIBRARY_PATH} java ${LogInfo}  -agentlib:${JVMTILib} ${JavaApp}
+LD_LIBRARY_PATH=`pwd`:${LD_LIBRARY_PATH} gdb --args /mnt/ssd/haoran/jdk12u-dev/build/linux-x86_64-server-release/jdk/bin/java ${LogInfo} -agentlib:${JVMTILib} ${JavaApp}
+# LD_LIBRARY_PATH=`pwd`:${LD_LIBRARY_PATH} /mnt/ssd/haoran/jdk12u-dev/build/linux-x86_64-server-slowdebug/jdk/bin/java -agentlib:${JVMTILib} -Xmx128M -Xms128M -XX:PrefetchThreads=1 -XX:PrefetchNum=100 -XX:PrefetchSize=1000 -XX:PrefetchQueueThreshold=100 -XX:+PrintGCDetails Simple
