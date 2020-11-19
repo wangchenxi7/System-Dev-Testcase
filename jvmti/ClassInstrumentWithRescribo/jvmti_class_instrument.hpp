@@ -17,6 +17,8 @@
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
+#include <iostream>
+#include <fstream>
 #include "stdint.h"
 
 
@@ -75,3 +77,6 @@ bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index );
 //
 // Debug Functions
 //
+
+// print the bytecode of the method to a file.
+void print_to_file(std::unique_ptr<Method> & method);

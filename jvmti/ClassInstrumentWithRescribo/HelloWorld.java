@@ -24,7 +24,7 @@ class testFunc{
 
 	int a = 0;
   
-  void storeContent(int val){
+  void storeContent(int val ){
     this.a = val;
   }
 

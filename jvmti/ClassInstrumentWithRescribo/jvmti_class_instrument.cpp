@@ -100,7 +100,20 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 															 unsigned char **new_class_data)
 {
 
-	const uint8_t *buffer = class_data;
+	const uint8_t *buffer = class_data;  // the bytecode data
+
+	//debug - print before instrumentation
+	if(strcmp(name, "objItem") == 0){
+
+		printf("Find the %s, print the instrumented calss to debug-before.class\n", name);
+
+	  std::ofstream modified_class;
+  	modified_class.open("debug-before.class");
+		modified_class.write( (const char* )class_data, class_data_len);
+		modified_class.close();
+	}
+
+
 	int i,j;
 	ClassFile class_file(&buffer);
 	assert(((buffer - class_data) == class_data_len) && "Incomplete class file read");
@@ -381,6 +394,23 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 	*new_class_data_len = byte_size;
 	jvmti->Allocate(byte_size, new_class_data);
 	class_file.write_buffer(new_class_data);
+
+	// debug - print after instrumentation
+	// write the modified class to file
+
+	//if (strcmp(name, "java/util/jar/JarFile") == 0) { 
+	
+	if(strcmp(name, "objItem") == 0){
+
+		printf("Find the %s, print the instrumented calss to debug-after.class\n", name);
+
+	  std::ofstream modified_class;
+  	modified_class.open("debug-after.class");
+		modified_class.write( (const char* )buffer,byte_size);
+		modified_class.close();
+	}
+
+	
 }
 
 /**
@@ -552,4 +582,22 @@ bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index ){
 
 	
 	return false;
+}
+
+
+//
+// Debug functions
+//
+
+
+/**
+ * Print the class file of the code to 
+ *  
+ */
+void print_to_file(std::unique_ptr<Method> & method){
+		Code *code = method->get_code();
+
+
+
+
 }
