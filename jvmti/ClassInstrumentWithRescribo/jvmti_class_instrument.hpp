@@ -31,7 +31,7 @@ using namespace project_rescribo;
 //
 
 // Control Options
-#define DEBUG_INSTRUMENT_BRIEF 1
+//#define DEBUG_INSTRUMENT_BRIEF 1
 //#define DEBUG_INSTRUMENT_DETAIL 1
 
 
@@ -70,8 +70,9 @@ bool function_filtered(std::unique_ptr<Method> & method);
 
 bool parse_object_array(ConstantPoolUtf8 *descriptor, int &i );
 bool parse_object_instance(ConstantPoolUtf8 *descriptor, int &descriptor_index );
-
 bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index );
+
+void insert_reference_load_instruction(uint8_t param_count, uint8_t non_static_local_val_offset, Code::InstructionInserter &inserter);
 
 
 //
@@ -79,4 +80,4 @@ bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index );
 //
 
 // print the bytecode of the method to a file.
-void print_to_file(std::unique_ptr<Method> & method);
+void print_to_file(const char *class_to_be_printed, const char* cur_class_name , const char* class_buffer, int byte_length );

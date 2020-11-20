@@ -101,10 +101,12 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 {
 
 	const uint8_t *buffer = class_data;  // the bytecode data
+	bool print_class = false;
 
 	//debug - print before instrumentation
-	if(strcmp(name, "objItem") == 0){
-
+	#ifdef DEBUG_INSTRUMENT_BRIEF
+	//if(strcmp(name, "objItem") == 0){
+	if (strcmp(name, "java/util/zip/ZipFile") == 0) { 
 		printf("Find the %s, print the instrumented calss to debug-before.class\n", name);
 
 	  std::ofstream modified_class;
@@ -112,6 +114,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 		modified_class.write( (const char* )class_data, class_data_len);
 		modified_class.close();
 	}
+	#endif
 
 
 	int i,j;
@@ -201,11 +204,16 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 				obj_array = parse_object_array(descriptor, i);
 				if(obj_array){
 					// Push an local variable into the stack
-					inserter.insert_aload(param_count + non_static_local_val_offset); // aload index; load the [index] local variables into stack.
+					//inserter.insert_aload(param_count + non_static_local_val_offset); // aload index; load the [index] local variables into stack.
+					insert_reference_load_instruction(param_count, non_static_local_val_offset, inserter);
+
+					// debug insert null
+					//inserter.insert_aconst_null();
+					
 					#ifdef DEBUG_INSTRUMENT_BRIEF
-						printf("Find an object ref for paramter[%u]. obj_ref ? %d , non-static-offset %u \n", 
-																												param_count + non_static_local_val_offset, 
-																												obj_ref, 
+						printf("Find an object ref for paramter[%u]. obj_array ? %d , non-static-offset %u \n", 
+																												param_count, 
+																												obj_array, 
 																												non_static_local_val_offset);
 					#endif
 				
@@ -215,6 +223,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 				}
 
 				// update local variable index
+				// Waring : for a primitve type, [D and [L, they are object ref and consume 1 local variable slot.
 				param_count++;
 				continue; // consume the ;
 			}
@@ -224,10 +233,17 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 				obj_ref = parse_object_instance(descriptor, i);
 				if(obj_ref){
 					// Push an local variable into the stack
-					inserter.insert_aload(param_count + non_static_local_val_offset); // aload index; load the [index] local variables into stack.
+					//inserter.insert_aload(param_count + non_static_local_val_offset); // aload index; load the [index] local variables into stack.
+					insert_reference_load_instruction(param_count, non_static_local_val_offset, inserter);
+
+					//debug
+					//inserter.insert_aconst_null();
+					
+					
 					#ifdef DEBUG_INSTRUMENT_BRIEF
+						// parameter count from 0.
 						printf("Find an object ref for paramter[%u]. obj_ref ? %d , non-static-offset %u \n", 
-																												param_count + non_static_local_val_offset, 
+																												param_count, 
 																												obj_ref, 
 																												non_static_local_val_offset);
 					#endif
@@ -279,7 +295,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// Double, consume 2 local variable slots
 					param_count += 2;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an D, +2, to %u\n", param_count);
+					printf("Find an D, +2, from %u to %u\n", param_count - 2, param_count);
 					#endif
 				}
 				else if (descriptor->get_data()[i] == 'J')
@@ -287,7 +303,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// long, consume 2 local variable slots
 					param_count += 2;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an J, +2, to %u\n", param_count);
+					printf("Find an J, +2, from %u to %u\n", param_count - 2, param_count);
 					#endif
 				}
 				else if (descriptor->get_data()[i] == 'I')
@@ -295,7 +311,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// Int, consume 1 local variable slots
 					param_count++;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an I, ++, to %u\n", param_count);
+					printf("Find an I, ++, from %u to %u\n", param_count - 1, param_count);
 					#endif
 				}
 				else if (descriptor->get_data()[i] == 'S')
@@ -303,7 +319,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// Short, consume 1 local variable slot
 					param_count++;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an S, ++, to %u\n", param_count);
+					printf("Find an S, ++, from %u to %u\n", param_count - 1,param_count);
 					#endif
 				}
 				else if (descriptor->get_data()[i] == 'F')
@@ -311,7 +327,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// Float, consume 1 local variable slot
 					param_count++;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an F, ++, to %u\n", param_count);
+					printf("Find an F, ++, from %u to %u\n", param_count - 1,param_count);
 					#endif
 				}
 				else if (descriptor->get_data()[i] == 'Z')
@@ -319,7 +335,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// Boolean, consume 1 local variable slot
 					param_count++;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an Z, ++, to %u\n", param_count);
+					printf("Find an Z, ++, from %u to %u\n",param_count - 1, param_count);
 					#endif
 				}
 				else if (descriptor->get_data()[i] == 'C')
@@ -327,7 +343,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// Char, consume 1 local variable slot
 					param_count++;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an C, ++, to %u\n", param_count);
+					printf("Find an C, ++, from %u to %u\n",param_count - 1, param_count);
 					#endif
 				}
 				else if (descriptor->get_data()[i] == 'B')
@@ -335,7 +351,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 					// Byte, consume 1 local variable slot
 					param_count++;
 					#ifdef DEBUG_INSTRUMENT_DETAIL
-					printf("Find an B, ++, to %u\n", param_count);
+					printf("Find an B, ++, from %u to %u\n",param_count - 1, param_count);
 					#endif
 				}
 
@@ -386,6 +402,7 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 		{
 			code->sync();
 		}
+
 	} // end of for : method
 
 	uint32_t byte_size = class_file.get_byte_size();
@@ -396,21 +413,22 @@ void JNICALL ClassFileLoadHook(jvmtiEnv *jvmti,
 	class_file.write_buffer(new_class_data);
 
 	// debug - print after instrumentation
+	#ifdef DEBUG_INSTRUMENT_BRIEF
 	// write the modified class to file
 
-	//if (strcmp(name, "java/util/jar/JarFile") == 0) { 
-	
-	if(strcmp(name, "objItem") == 0){
+	// if (strcmp(name, "java/util/jar/JarFile") == 0) 
 
-		printf("Find the %s, print the instrumented calss to debug-after.class\n", name);
+	// Debug the instrumented class
+	// e.g.,
+	// java/util/jar/JarFile, ::getEntry
+	// java/util/zip/ZipFile, getEntry
+	print_to_file("java/util/zip/ZipFile", name, (const char* )(*new_class_data),  *new_class_data_len);
+	// if(print_class)
+	// 	print_to_file(NULL, name, (const char* )(*new_class_data),  *new_class_data_len);
+	// // reset to false
+	// print_class = false;
+	#endif
 
-	  std::ofstream modified_class;
-  	modified_class.open("debug-after.class");
-		modified_class.write( (const char* )buffer,byte_size);
-		modified_class.close();
-	}
-
-	
 }
 
 /**
@@ -487,20 +505,45 @@ bool parse_object_array(ConstantPoolUtf8 *descriptor, int &descriptor_index ){
 	 }
 	#endif
 
-	//	The first character should be a primitive or class's name
-	descriptor_index++; // consume the [
-	descriptor_index++; // Read the next charracter. The character bhind [ can't be used as the flag of primitives.
 
+	
+	// 1) consume the [
+  // Points to the first [ now.
+	// one dimension [${primitive_type}
+	// 2 and more [...[${primitive_type}
 	do{
 
-		if( is_primive_type(descriptor, descriptor_index) == true  ){
-			// this is a primitive array,
-			// return false
+		descriptor_index++; 
+	}while(descriptor->get_data()[descriptor_index] == '[');
+
+
+	// 2) Recognize the primitive array
+	// if the symbol following the last [ is a primitive type, then this is a primitive array.
+	// OR it has to be L.
+	// To handle the primitve array.
+	// e.g., [B
+	// we are pointing the B now.
+	if( is_primive_type(descriptor, descriptor_index) == true  ){
+		// this is a primitive array,
+		// pointing the primitive symbol, B. 
+		// This symbol will be consumed by the for loop.
+		// return false
+		goto ret;
+	}
+
+	// 3) recognize the object array
+	#ifdef DEBUG_INSTRUMENT_BRIEF
+		if(descriptor->get_data()[descriptor_index] != 'L'){
+			printf("\n%s, parameter[%u] is not [.  parsing object array failed !! \n\n", descriptor_index );
 			goto ret;
 		}
+	#endif
+
+	do{
+		// Warning : For an object array, the chracters betwee [L and ; may contain some characters same as primitive type
+		// e.g., [Lio/netty/util/concurrent/GenericFutureListener;
 
 		descriptor_index ++; // consume one more symbol
-
 	}while(descriptor->get_data()[descriptor_index] != ';' );
 	
 	// Leave the ; to be consumed by for loop
@@ -565,13 +608,45 @@ bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index ){
 	switch(descriptor->get_data()[descriptor_index]) {
 
 		case 'S':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type S, Short\n");
+				return true;
+			#endif
 		case 'I':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type I, Int\n");
+				return true;
+			#endif
 		case 'F':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type F, Float\n");
+				return true;
+			#endif
 		case 'Z':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type Z, boolean\n");
+				return true;
+			#endif
 		case 'B':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type B, Byte\n");
+				return true;
+			#endif
 		case 'C':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type C, Char\n");
+				return true;
+			#endif
 		case 'J':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type J, Long\n");
+				return true;
+			#endif
 		case 'D':
+			#ifdef DEBUG_INSTRUMENT_DETAIL
+				printf("Find primitive type D, Double\n");
+			#endif
+
 			return true;
 			break;
 
@@ -585,19 +660,90 @@ bool is_primive_type(ConstantPoolUtf8 *descriptor, int descriptor_index ){
 }
 
 
+/**
+ * Insert the alod_# and aload index instruction.
+ *  
+ */
+void insert_reference_load_instruction(uint8_t param_count, uint8_t non_static_local_val_offset, Code::InstructionInserter &inserter){
+
+	uint8_t local_val_index = param_count + non_static_local_val_offset;
+
+	switch (local_val_index)
+	{
+	case (uint8_t)0:
+		inserter.insert_aload_0();
+		break;
+
+	case (uint8_t)1:
+		inserter.insert_aload_1();
+		break;
+	
+	case (uint8_t)2:
+		inserter.insert_aload_2();
+		break;
+
+	case (uint8_t)3:
+		inserter.insert_aload_3();
+		break;
+	
+	default:
+		inserter.insert_aload(local_val_index);  // index is larger than 3
+
+		break;
+	}
+
+
+}
+
+
+
+
+
+
 //
 // Debug functions
 //
 
 
 /**
- * Print the class file of the code to 
+ * Print the class file of the code to a specific file
  *  
  */
-void print_to_file(std::unique_ptr<Method> & method){
-		Code *code = method->get_code();
+void print_to_file(const char *class_to_be_printed, const char* cur_class_name , const char* class_buffer, int byte_length ){
+	
+	bool print = false;
+
+	if(class_to_be_printed == NULL){
+		// not specific any class, print all the class
+		print = true;
+	}else if( strcmp(class_to_be_printed, cur_class_name) == 0 ){
+		// print specific class
+		print = true;
+	}
 
 
+	if(print){
+		
+		// The class name contains /, can be a problem here.
+		//char debug_suffix[13] = "-debug.class";
+		//char *file_name = (char *)malloc(strlen(cur_class_name) + strlen(debug_suffix) +1 );
+
+		//strcpy(file_name, cur_class_name);
+		//strcat(file_name, debug_suffix);
+
+		//debug
+		char file_name[18] = "debug-after.class";
+
+		#ifdef DEBUG_INSTRUMENT_BRIEF
+			printf("Find the %s, print the instrumented calss to %s\n", cur_class_name, file_name);
+		#endif
+
+	  std::ofstream modified_class;
+  	modified_class.open(file_name);
+		modified_class.write( class_buffer, byte_length);
+		modified_class.close();
+	}
 
 
+	return;
 }
