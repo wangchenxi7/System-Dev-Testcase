@@ -1,0 +1,146 @@
+//import java.util.Random;
+
+public class Simple {
+
+    public static final int _elem_num       = 12*1024*1024;     // 12M elements
+    public static final int _small_elem_num = _elem_num/128;		// 96K elements
+  
+    public static void sleep(long ms) {
+      try {
+        System.out.println("Go sleeping for " + ms/1000 + "!");
+        Thread.sleep(ms);
+        System.out.println("Wake up and done!");
+      } catch (InterruptedException e) {
+        e.printStackTrace();
+      }
+    }
+
+  
+    public static void region_loop(int loop_num, objItem[] array) {
+  
+      int count = 0;
+      
+      double tmp_double = 2.1;
+      char tmp_char = 'a';
+      boolean tmp_bool = true;
+      float tmp_float = 1.1f;
+      long tmp_long = 1l;
+      short tmp_short = 1;
+      int end = 1;
+      
+      System.out.println(count + " " + tmp_double + " " + tmp_char +  " " +tmp_bool +  " " +tmp_float + " " + end);
+      
+
+      do{ 
+        // 1) Check object array assignment : aastore
+        System.out.println("Loop "+ count +", Phase 1 start : Do object array element assignment, aastore \n");
+  
+        // Only keep the latest 2 arrays 
+
+
+        if( (count+1)*_small_elem_num  >= array.length ){
+          // 1) move array[1] to array[0] 
+          //System.arraycopy(array,array.length/2, array,0, array.length/2);
+          for(int i = 0; i <_small_elem_num; i++) {
+            if(i%100 ==0){
+              array[i] = array[i+1];
+              continue;
+            }
+            array[i]=array[i+_small_elem_num];
+          }
+        }
+        
+        // 2) Assign newly build array to array[1]
+        for(int i= 0; i< _small_elem_num; i++ ){
+          array[i+_small_elem_num] = new objItem(i*(count+1), 2*i*(count+1));
+        }
+
+        // sleep 2s
+        sleep(2000);
+  
+        // 2) do object field assignment : putfield
+        System.out.println("Loop "+ count +", Phase 2 start : Do object field assignment, putfield \n");
+        for(int i=_small_elem_num; i< array.length; i++ ){
+          array[i].field_1 = new internalItem((count+1)*i);
+          array[i].field_2 = new internalItem((count+1)*2*i);
+          array[i].field_3 = new internalItem((count+1)*3*i);
+          array[i].field_4 = new internalItem((count+1)*4*i);
+        }
+  
+  
+        //check the content of the array
+        System.out.println("Check the contents of array.");
+        for(int i=0; i<array.length;i++){
+          if( i%(array.length/8)==0){
+            if(array[i] == null)
+                   System.out.println("array["+i+"] is null.");
+                else
+                   System.out.println("array["+i+"] -> key:" + array[i].key + ", val:" +array[i].val + ", internalItem field_3 id:" + array[i].field_3.id);
+              } //check object at 1024*1024 granulirity
+        }
+  
+  
+        System.out.println( "end of loop :" + count + " ,arrayList size :" + array.length);
+        System.out.println("");
+      }while(++count < loop_num); //end of while
+    
+      // Prevent the arraycopy is optimized by opt compiler
+      System.out.println("");
+      System.out.println("End of while, array.length:" +array.length);
+      for(int i=0; i< array.length; i+= array.length/8 ){
+        if(array[i] != null){
+          System.out.println("array["+i+"] :" + array[i].val);
+        }else{
+        	System.out.println("array["+i+"] is null.");
+        }
+      }
+  
+      System.out.println("");
+      System.out.println("****************PASSED****************");
+
+    }
+  
+  
+  
+  
+  
+    public static void main(String args[]) {
+  
+      // A global array to record the newly generated objects.
+      //System.out.println("start");
+      objItem[] array = new objItem[_small_elem_num*2];
+      //System.out.println("allocate array objects");
+      region_loop(1111111116, array);
+    }
+  }
+  
+  // obj header +
+  // offload: size 4*2 + 8*4 = 40 bytes
+  class objItem{
+  
+   public int  key;
+   public int  val;
+  
+    // add some fields 
+    internalItem field_1;
+    internalItem field_2;
+    internalItem field_3;
+    internalItem field_4;
+  
+  
+    public objItem(int key, int val){
+      this.key =key;
+      this.val = val;
+    }
+  
+  }
+  
+  // obj header
+  // offload :size 4 bytes
+  class internalItem{
+    int id;
+  
+    public internalItem(int id){
+      this.id = id;
+    }
+  }
