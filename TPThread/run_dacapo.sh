@@ -21,10 +21,10 @@ confVar="on"
 #youngRatio="8" 
 gcMode="G1"
 heapSize="512m" # -Xmx -Xmx 
-#ParallelGCThread="32"  # CPU server GC threads 
+ParallelGCThread="4"  # CPU server GC threads 
 ConcGCThread="2"
 TPThreadNum="2"
-logLevel="info"
+logLevel="debug"
 
 
 ##
