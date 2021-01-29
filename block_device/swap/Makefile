@@ -15,7 +15,10 @@ all:
 	cc ${CFLAGS} on_demand_swapin.c -o on_demand_swapin.o 
 	cc ${CFLAGS} on_demand_swapin_monitor.c -o on_demand_swapin_monitor.o
 	cc ${CFLAGS} swap_info_count.c -o swap_info_count.o
+	cc ${CFLAGS} swap_reset_counter.c -o swap_reset_counter.o
+	cc ${CFLAGS} swap_counter_read.c -o swap_counter_read.o
 
 clean:
 	rm swap_streaming.o swap_mmap.o add_page_to_inactive_list.o  flush_page_to_swap_imm.o swap_out_ratio_flush_based.o  control_path.o \
-			flush_page_to_swap_imm.o  control_path_after_data_path_flush.o   on_demand_swapin.o  on_demand_swapin_monitor.o swap_info_count.o
+			flush_page_to_swap_imm.o  control_path_after_data_path_flush.o   on_demand_swapin.o  on_demand_swapin_monitor.o swap_info_count.o swap_reset_counter.o \
+			swap_counter_read.o
