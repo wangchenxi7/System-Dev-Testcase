@@ -24,13 +24,13 @@ extern errno;
 /**
  * Reserve memory at fixed address 
  */
-static char* reserve_anon_memory(char* requested_addr, uint64_t bytes, bool fixed) {
+static char* reserve_anon_memory(char* requested_addr, unsigned long bytes, bool fixed) {
 	char * addr;
 	int flags;
 
 	flags = MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS;   
 	if (fixed == true) {
-			printf("Request fixed addr 0x%llx ", (uint64_t)requested_addr);
+			printf("Request fixed addr 0x%lx ", (unsigned long)requested_addr);
 
 		flags |= MAP_FIXED;
 	}
@@ -50,13 +50,13 @@ static char* reserve_anon_memory(char* requested_addr, uint64_t bytes, bool fixe
  * Commit memory at reserved memory range.
  *  
  */
-char* commit_anon_memory(char* start_addr, uint64_t size, bool exec) {
+char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 	int prot = (exec == true) ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE;
-	uint64_t res = (uint64_t)mmap(start_addr, size, prot,
+	unsigned long res = (unsigned long)mmap(start_addr, size, prot,
 																		 MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);   // MAP_FIXED will override the old mapping
 	
 	// commit memory successfully.
-	if (res == (uint64_t) MAP_FAILED) {
+	if (res == (unsigned long) MAP_FAILED) {
 
 		// print errno here.
 		return NULL;
@@ -71,33 +71,33 @@ char* commit_anon_memory(char* start_addr, uint64_t size, bool exec) {
 int main(){
 				
 	int type = 0x1;
-	uint64_t request_addr 	= 0x400080000000;
-	//uint64_t size  					=	0x1e000;		// 8KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
-	uint64_t size  				=	0x40000000; // 64(30+30+4) pages, test scatter-gather design.
+	unsigned long request_addr 	= 0x400080000000;
+	//unsigned long size  					=	0x1e000;		// 8KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
+	unsigned long size  				=	0x40000000; // 64(30+30+4) pages, test scatter-gather design.
 	char* user_buff;
-	uint64_t i;
-	uint64_t initial_val		= -1;  //
+	unsigned long i;
+	unsigned long initial_val		= -1;  //
 	int syscall_ret 				= 0;
 
 	// 1) reserve space by mmap
 	user_buff = reserve_anon_memory((char*)request_addr, size, true );
 	if(user_buff == NULL){
-		printf("Reserve user_buffer, 0x%llx failed. \n", (uint64_t)request_addr);
+		printf("Reserve user_buffer, 0x%lx failed. \n", (unsigned long)request_addr);
 	}else{
-		printf("Reserve user_buffer: 0x%llx, bytes_len: 0x%llx \n",(uint64_t)user_buff, size);
+		printf("Reserve user_buffer: 0x%lx, bytes_len: 0x%lx \n",(unsigned long)user_buff, size);
 	}
 
 	// 2) commit the space
 	user_buff = commit_anon_memory((char*)request_addr, size, false);
 	if(user_buff == NULL){
-		printf("Commit user_buffer, 0x%llx failed. \n", (uint64_t)request_addr);
+		printf("Commit user_buffer, 0x%lx failed. \n", (unsigned long)request_addr);
 	}else{
-		printf("Commit user_buffer: 0x%llx, bytes_len: 0x%llx \n",(uint64_t)user_buff, size);
+		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",(unsigned long)user_buff, size);
 	}
 
 	// initialize the user_space buffer
-	uint64_t * buf_ptr = (uint64_t*)user_buff;
-	for(i=0; i< size/sizeof(uint64_t); i++ ){
+	unsigned long * buf_ptr = (unsigned long*)user_buff;
+	for(i=0; i< size/sizeof(unsigned long); i++ ){
 		buf_ptr[i] = initial_val;  // the max value.
 	}
 
@@ -106,7 +106,7 @@ int main(){
 	// 1) RDMA write
 	//
 	type = 0x2;
-	printf("Before syscall - RDMA Write, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
+	printf("Before syscall - RDMA Write, first unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)user_buff);
   syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, user_buff, size);
   printf("Invoke#1, System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
 
@@ -124,12 +124,12 @@ int main(){
 	type =0x1;
 	// reset the value to test read/write 
 	printf("reset the value on current server to 0. \n");
-	for(i=0; i< size/sizeof(uint64_t); i++ ){
+	for(i=0; i< size/sizeof(unsigned long); i++ ){
 		buf_ptr[i] = 0;  // the max value.
 	}
 
 
-	printf("Before syscall - RDMA read, first uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
+	printf("Before syscall - RDMA read, first unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)user_buff);
 
   syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, user_buff, size);
   printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
@@ -137,23 +137,23 @@ int main(){
 	sleep(3);
 
 
-	// busy checking the first uint64_t value of the buffer.
+	// busy checking the first unsigned long value of the buffer.
 	// give rdma some time to run
 	// for(i=0; i<initial_val; i++){  // inifinit
-	// 	if(*(uint64_t*)user_buff != initial_val ){
-	// 		printf("1-sided RDMA read finished. value 0x%llx \n", *(uint64_t*)user_buff);
+	// 	if(*(unsigned long*)user_buff != initial_val ){
+	// 		printf("1-sided RDMA read finished. value 0x%lx \n", *(unsigned long*)user_buff);
 	// 		break;
 	// 	}else{
 	// 		//keep busy waiting 
 	// 		//if(i%8 == 0)
-	// 			printf("busy waiting, time counter: 0x%llx \n",i);
+	// 			printf("busy waiting, time counter: 0x%lx \n",i);
 	// 	}
 
 
 	// }
 
-	printf("After syscall RDMA read, FIRST uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)user_buff);
-	printf("After syscall RDMA read, LAST uint64_t of the user_buffer: 0x%llx \n",*(uint64_t*)(user_buff +  size/sizeof(uint64_t) - 1) );
+	printf("After syscall RDMA read, FIRST unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)user_buff);
+	printf("After syscall RDMA read, LAST unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)(user_buff +  size/sizeof(unsigned long) - 1) );
 
 	return 0;
 }

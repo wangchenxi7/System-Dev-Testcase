@@ -6,8 +6,9 @@
 
 #include "stdio.h"
 #include "stdint.h"
+#include "stdlib.h"
 
-#define ARRAY_LENGTH (uint64_t)1024*1024*1024*2   // length is 16M, 
+#define ARRAY_LENGTH (unsigned long)1024*1024*1024*2   // length is 16M, 
 
 int main(int argc, char* argv[]){
 	int i;

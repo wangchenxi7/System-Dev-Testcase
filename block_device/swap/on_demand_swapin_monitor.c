@@ -39,13 +39,13 @@ extern errno;
 int main(){
 				
 	int type = 0x1;
-	uint64_t request_addr 	= 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
-	uint64_t size  					=	0x100000;		// 1MB, for uint64_t, length is 0x20,000
-	//uint64_t size  					=	0x2000000;		// 16MB, for uint64_t, length is 0x200,000
+	unsigned long request_addr 	= 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
+	unsigned long size  					=	0x100000;		// 1MB, for unsigned long, length is 0x20,000
+	//unsigned long size  					=	0x2000000;		// 16MB, for unsigned long, length is 0x200,000
 	char* user_buff;
-	uint64_t i;
-	uint64_t sum = 0;
-	uint64_t swapped_out_pages = 0;
+	unsigned long i;
+	unsigned long sum = 0;
+	unsigned long swapped_out_pages = 0;
 	int on_demand_swapin_record = 0;
 	int ret;
 
