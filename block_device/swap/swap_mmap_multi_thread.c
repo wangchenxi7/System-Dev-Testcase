@@ -8,6 +8,8 @@
 
 #include "stdint.h"
 #include "stdio.h"
+#include "time.h"
+#include "stdlib.h"
 
 
 
@@ -15,7 +17,11 @@ typedef enum {true, false} bool;
 
 extern errno;
 
-#define ARRAY_BYTE_SIZE 0xc0000000UL
+//#define ARRAY_BYTE_SIZE 0xc0000000UL
+
+#define ARRAY_START_ADDR	0x400000000000UL		
+#define ARRAY_BYTE_SIZE 	0x80000000UL  // 2GB
+
 int online_cores = 16;
 
 struct thread_args{
@@ -69,8 +75,8 @@ char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 }
 
 
-// pthread function
-void *scan_array(void* _args){
+// pthread function #1
+void *scan_array_no_overleap(void* _args){
 	struct thread_args *args = (struct thread_args*)_args;
 	size_t tid = (size_t)args->thread_id; // 0 to online_cores
 	char* user_buff	=	(char*)args->user_buf;
@@ -96,11 +102,44 @@ void *scan_array(void* _args){
 }
 
 
+// pthread function #1
+// scan the entire array from start to the end.
+// make the memory acces random
+void *scan_array_overleap(void* _args){
+	struct thread_args *args = (struct thread_args*)_args;
+	size_t tid = (size_t)args->thread_id; // 0 to online_cores
+	char* user_buff	=	(char*)args->user_buf;
+	size_t array_slice = ARRAY_BYTE_SIZE/sizeof(unsigned long); // the entire array
+	size_t array_start = 0; 	// scan from start
+	size_t i, sum;
+
+
+	//
+	// ！！ Fix me !!
+
+	printf("Thread[%lu] Phase #1, trigger swap out. \n",tid);
+	unsigned long * buf_ptr = (unsigned long*)user_buff;
+	for( i = array_start  ; i < array_start + array_slice  ; i++ ){
+		buf_ptr[i] = i;  // the max value.
+	}
+
+	sum =0;
+	printf("Thread[%lu] Phase #2, trigger swap in.\n", tid);
+	for( i=array_start; i<  array_start + array_slice; i++ ){
+		sum +=buf_ptr[i];  // the sum should be 0x7,FFF,FFE,000,000.
+	}
+
+	printf("Thread[%lu] sum : 0x%lx \n", tid, sum);
+
+	pthread_exit(NULL);
+}
+
+
 
 int main(){
 				
 	int type = 0x1;
-	unsigned long request_addr 	= 0x400100000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
+	unsigned long request_addr 	= ARRAY_START_ADDR; // start of RDMA meta space, 1GB not exceed the swap partitio size.
 	unsigned long size  		= ARRAY_BYTE_SIZE;	// 512MB, for unsigned long, length is 0x4,000,000
 	char* user_buff;
 	unsigned long i;
