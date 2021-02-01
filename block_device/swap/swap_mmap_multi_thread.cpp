@@ -11,18 +11,30 @@
 #include "time.h"
 #include "stdlib.h"
 
+// c++ stl multithread random number generator
+#include <random>
+
+/**
+ * Warning : the tradition srand() is a sequential generator. 
+ * 	The multiple threads will be bound at the random number generation.
+ */
 
 
-typedef enum {true, false} bool;
+
+#define ONE_MB    1048576UL				// 1024 x 2014 bytes
+#define ONE_GB    1073741824UL   	// 1024 x 1024 x 1024 bytes
+#define PAGE_SHIFT 12
+
+//typedef enum {true, false} bool;
 
 extern errno;
 
 //#define ARRAY_BYTE_SIZE 0xc0000000UL
 
 #define ARRAY_START_ADDR	0x400000000000UL		
-#define ARRAY_BYTE_SIZE 	0x80000000UL  // 2GB
+#define ARRAY_BYTE_SIZE 	3*ONE_GB  // 3GB
 
-int online_cores = 16;
+int online_cores = 8;
 
 struct thread_args{
 	size_t	thread_id; // thread index, start from 0
@@ -113,9 +125,8 @@ void *scan_array_overleap(void* _args){
 	size_t array_start = 0; 	// scan from start
 	size_t i, sum;
 
-
-	//
-	// ！！ Fix me !!
+	thread_local std::mt19937 engine(std::random_device{}());
+	std::uniform_int_distribution<int> dist(1, ONE_GB);
 
 	printf("Thread[%lu] Phase #1, trigger swap out. \n",tid);
 	unsigned long * buf_ptr = (unsigned long*)user_buff;
@@ -125,11 +136,16 @@ void *scan_array_overleap(void* _args){
 
 	sum =0;
 	printf("Thread[%lu] Phase #2, trigger swap in.\n", tid);
-	for( i=array_start; i<  array_start + array_slice; i++ ){
-		sum +=buf_ptr[i];  // the sum should be 0x7,FFF,FFE,000,000.
+	for( i=array_start; i<  array_start + array_slice; i+=8){ // step is N
+		unsigned long index_to_access = (unsigned long)dist(engine)*i % (array_slice/sizeof(unsigned long));
+
+		//debug - check the random level
+		//printf("Thread[%lu] access buf_ptr[%lu], page[%lu] \n", tid, index_to_access, (index_to_access >> (PAGE_SHIFT -3 ) ) );
+
+		sum +=buf_ptr[index_to_access];  // the sum should be 0x7,FFF,FFE,000,000.
 	}
 
-	printf("Thread[%lu] sum : 0x%lx \n", tid, sum);
+	printf("Thread[%lu] sum : 0x%lx of array_slice[0x%lx, 0x%lx ]  \n", tid, sum, (unsigned long)(buf_ptr + array_start), (unsigned long)(buf_ptr + array_slice)  );
 
 	pthread_exit(NULL);
 }
@@ -145,8 +161,11 @@ int main(){
 	unsigned long i;
 	unsigned long sum = 0;
 	pthread_t threads[online_cores];
-	struct thread_args args;
+	struct thread_args args[online_cores]; // pass value by reference, so keep a copy for each thread
 	int ret =0;
+	srand(time(NULL));		// generate a random interger
+
+	//online_cores = sysconf(_SC_NPROCESSORS_ONLN);
 
 	// 1) reserve space by mmap
 	user_buff = reserve_anon_memory((char*)request_addr, size, true );
@@ -164,10 +183,11 @@ int main(){
 		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",(unsigned long)user_buff, size);
 	}
 
-	args.user_buf = user_buff;
+	
 	for(i=0; i< online_cores; i++){
-		args.thread_id = i;
-		ret = pthread_create(&threads[i], NULL, scan_array, (void*)&args);
+		args[i].user_buf = user_buff;
+		args[i].thread_id = i;
+		ret = pthread_create(&threads[i], NULL, scan_array_overleap, (void*)&args[i]);
 		if (ret){
       printf("ERROR; return code from pthread_create() is %d\n", ret);
       return 0;

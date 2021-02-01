@@ -73,7 +73,8 @@ int main(){
 				
 	int type = 0x1;
 	//unsigned long request_addr 	= 0x400100000000; //Start at Data Region
-	unsigned long request_addr 	= 0x400000000000UL - ONE_GB; //  Start at before the fastswap range
+	//unsigned long request_addr 	= 0x400000000000UL - ONE_GB; //  Start at before the fastswap range
+	unsigned long request_addr 	= 0x400000000000UL - 5*ONE_GB; //  Start at before the fastswap range
 	unsigned long size  				= 3*ONE_GB;	// 3GB, unsigned long array
 	char* user_buff;
 	unsigned long i;
