@@ -102,9 +102,10 @@ int main(){
 		buf_ptr[i] = i;  // the max value.
 	}
 
+	// random generator is too slow, no need to traverse the entrie array.
 	sum =0;
 	printf("Phase #2, trigger randonw swap in.\n");
-	for(i=0; i< size/sizeof(unsigned long); i++ ){
+	for(i=0; i< size/sizeof(unsigned long)/32; i++ ){
 		unsigned long index_to_access = (unsigned long)rand()*i % (size/sizeof(unsigned long));
 		sum +=buf_ptr[index_to_access];  // the sum should be 0x7,FFF,FFE,000,000.
 	}
