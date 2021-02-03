@@ -23,6 +23,8 @@
 
 #define ONE_MB    1048576UL				// 1024 x 2014 bytes
 #define ONE_GB    1073741824UL   	// 1024 x 1024 x 1024 bytes
+
+#define PAGE_SIZE  4096
 #define PAGE_SHIFT 12
 
 //typedef enum {true, false} bool;
@@ -31,10 +33,10 @@ extern errno;
 
 //#define ARRAY_BYTE_SIZE 0xc0000000UL
 
-#define ARRAY_START_ADDR	0x400000000000UL		
-#define ARRAY_BYTE_SIZE 	3*ONE_GB  // 3GB
+#define ARRAY_START_ADDR	0x400000000000UL - ONE_GB	- ONE_MB
+#define ARRAY_BYTE_SIZE 	9*ONE_GB  // 3GB
 
-int online_cores = 8;
+int online_cores = 16;
 
 struct thread_args{
 	size_t	thread_id; // thread index, start from 0
@@ -117,7 +119,7 @@ void *scan_array_no_overleap(void* _args){
 // pthread function #1
 // scan the entire array from start to the end.
 // make the memory acces random
-void *scan_array_overleap(void* _args){
+void *scan_array_random_overleap(void* _args){
 	struct thread_args *args = (struct thread_args*)_args;
 	size_t tid = (size_t)args->thread_id; // 0 to online_cores
 	char* user_buff	=	(char*)args->user_buf;
@@ -136,13 +138,43 @@ void *scan_array_overleap(void* _args){
 
 	sum =0;
 	printf("Thread[%lu] Phase #2, trigger swap in.\n", tid);
-	for( i=array_start; i<  array_start + array_slice; i+=8){ // step is N
+	for( i=array_start; i<  array_start + array_slice; i+=32){ // step is N
 		unsigned long index_to_access = (unsigned long)dist(engine)*i % (array_slice/sizeof(unsigned long));
 
 		//debug - check the random level
 		//printf("Thread[%lu] access buf_ptr[%lu], page[%lu] \n", tid, index_to_access, (index_to_access >> (PAGE_SHIFT -3 ) ) );
 
 		sum +=buf_ptr[index_to_access];  // the sum should be 0x7,FFF,FFE,000,000.
+	}
+
+	printf("Thread[%lu] sum : 0x%lx of array_slice[0x%lx, 0x%lx ]  \n", tid, sum, (unsigned long)(buf_ptr + array_start), (unsigned long)(buf_ptr + array_slice)  );
+
+	pthread_exit(NULL);
+}
+
+
+
+void *scan_array_sequential_overleap(void* _args){
+	struct thread_args *args = (struct thread_args*)_args;
+	size_t tid = (size_t)args->thread_id; // 0 to online_cores
+	char* user_buff	=	(char*)args->user_buf;
+	size_t array_slice = ARRAY_BYTE_SIZE/sizeof(unsigned long); // the entire array
+	size_t array_start = 0; 	// scan from start
+	size_t i, sum;
+
+	thread_local std::mt19937 engine(std::random_device{}());
+	std::uniform_int_distribution<int> dist(1, ONE_GB);
+
+	printf("Thread[%lu] Phase #1, trigger swap out. \n",tid);
+	unsigned long * buf_ptr = (unsigned long*)user_buff;
+	for( i = array_start  ; i < array_start + array_slice  ; i++ ){
+		buf_ptr[i] = i;  // the max value.
+	}
+
+	sum =0;
+	printf("Thread[%lu] Phase #2, trigger swap in.\n", tid);
+	for( i=array_start; i<  array_start + array_slice; i+=(PAGE_SIZE/sizeof(unsigned long)) ){ // step is PAGE
+		sum +=buf_ptr[i];  // the sum should be 0x7,FFF,FFE,000,000.
 	}
 
 	printf("Thread[%lu] sum : 0x%lx of array_slice[0x%lx, 0x%lx ]  \n", tid, sum, (unsigned long)(buf_ptr + array_start), (unsigned long)(buf_ptr + array_slice)  );
@@ -187,7 +219,9 @@ int main(){
 	for(i=0; i< online_cores; i++){
 		args[i].user_buf = user_buff;
 		args[i].thread_id = i;
-		ret = pthread_create(&threads[i], NULL, scan_array_overleap, (void*)&args[i]);
+		
+		//ret = pthread_create(&threads[i], NULL, scan_array_random_overleap, (void*)&args[i]);
+		ret = pthread_create(&threads[i], NULL, scan_array_sequential_overleap, (void*)&args[i]);
 		if (ret){
       printf("ERROR; return code from pthread_create() is %d\n", ret);
       return 0;
