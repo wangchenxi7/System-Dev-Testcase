@@ -65,13 +65,13 @@ extern errno;
 /**
  * Reserve memory at fixed address 
  */
-static char* reserve_anon_memory(char* requested_addr, uint64_t bytes, bool fixed) {
+static char* reserve_anon_memory(char* requested_addr, unsigned long bytes, bool fixed) {
 	char * addr;
 	int flags;
 
 	flags = MAP_PRIVATE | MAP_NORESERVE | MAP_ANONYMOUS;   
 	if (fixed == true) {
-			printf("Request fixed addr 0x%llx ", (uint64_t)requested_addr);
+			printf("Request fixed addr 0x%lx ", (unsigned long)requested_addr);
 
 		flags |= MAP_FIXED;
 	}
@@ -91,13 +91,13 @@ static char* reserve_anon_memory(char* requested_addr, uint64_t bytes, bool fixe
  * Commit memory at reserved memory range.
  *  
  */
-char* commit_anon_memory(char* start_addr, uint64_t size, bool exec) {
+char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 	int prot = (exec == true) ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE;
-	uint64_t res = (uint64_t)mmap(start_addr, size, prot,
+	unsigned long res = (unsigned long)mmap(start_addr, size, prot,
 																		 MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);   // MAP_FIXED will override the old mapping
 	
 	// commit memory successfully.
-	if (res == (uint64_t) MAP_FAILED) {
+	if (res == (unsigned long) MAP_FAILED) {
 
 		// print errno here.
 		return NULL;
@@ -147,7 +147,7 @@ static void *handler(void *arg)
 		// parameters: (struct pollfd *fds, nfds_t num_fds, const struct timespec *tmo_p, const sigset_t *sigmask)
 		// 3rd, time out? the poll() will occupy a core and busy wait on it ?
 		// 4th, sigset can be omitted ?
-		fprintf(stderr, "%s, poll on fd %d \n", __func__, pollfd);
+		fprintf(stderr, "%s, poll on fd 0x%lx \n", __func__, (unsigned long)pollfd);
 		int pollres = poll(pollfd, 1, 2000);
 
 		if (stop == true)
@@ -196,12 +196,12 @@ static void *handler(void *arg)
 		//     Don't we allocate physical page to the virtual page first ??
 		//     Or the kernel will handle the physical page allocation directly ?
 		if (msg.event & UFFD_EVENT_PAGEFAULT) {
-			uint64_t addr = msg.arg.pagefault.address;
-			fprintf(stderr, "%s, Received page fault at 0x%llx \n", __func__, addr);
+			unsigned long addr = msg.arg.pagefault.address;
+			fprintf(stderr, "%s, Received page fault at 0x%lx \n", __func__, addr);
 
 			struct uffdio_copy copy;
-			copy.src = (uint64_t)buf;
-			copy.dst = (uint64_t)addr;
+			copy.src = (unsigned long)buf;
+			copy.dst = (unsigned long)addr;
 			copy.len = PAGE_SIZE;
 			copy.mode = 0;  // [?] copy mode ?
 
@@ -227,8 +227,8 @@ int main(int argc, char* argv[]){
   int fd = 0;
   
   char* user_buf;
-  uint64_t user_buffer_addr = 0x20000000; // 512MB
-  uint64_t user_buffer_size = 0x2000; // 8KB
+  unsigned long user_buffer_addr = 0x20000000; // 512MB
+  unsigned long user_buffer_size = 0x2000; // 8KB
 	pthread_t uffd_thread;  // uffd handler daemon thread.
 
 	int i;
@@ -256,15 +256,15 @@ int main(int argc, char* argv[]){
 
 
   // 2) Prepare the user space memory
-	fprintf(stderr, "Phase2, Register [0x%llx, 0x%llx) as range for user page fault handling. \n", 
+	fprintf(stderr, "Phase2, Register [0x%lx, 0x%lx) as range for user page fault handling. \n", 
 																			user_buffer_addr, user_buffer_addr+user_buffer_size );
   // Reserve space at specified virtual memory.
   // Access it will lead to page fault.
   user_buf = commit_anon_memory((char*)user_buffer_addr, user_buffer_size, true);
   if(user_buf == NULL){
-		printf("Commit user_buffer, 0x%llx failed. \n", user_buffer_addr);
+		printf("Commit user_buffer, 0x%lx failed. \n", user_buffer_addr);
 	}else{
-		printf("Commit user_buffer: 0x%llx, bytes_len: 0x%llx \n",user_buffer_addr, user_buffer_size);
+		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
 	}
 
   
@@ -272,7 +272,7 @@ int main(int argc, char* argv[]){
   struct uffdio_register reg = {
 		.mode = UFFDIO_REGISTER_MODE_MISSING,
 		.range = {
-			.start = (uint64_t)user_buf,
+			.start = (unsigned long)user_buf,
 			.len = user_buffer_size
 		}
 	};
@@ -296,7 +296,7 @@ int main(int argc, char* argv[]){
 	ptr = user_buf;
 	size_t offset = 8; //bytes
 	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%llx) : %s \n", i/4096, (uint64_t)(ptr+i), ptr+i );
+		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s \n", i/4096, (unsigned long)(ptr+i), ptr+i );
 	}
 
 

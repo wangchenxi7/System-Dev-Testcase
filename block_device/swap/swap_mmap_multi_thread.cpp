@@ -33,10 +33,10 @@ extern errno;
 
 //#define ARRAY_BYTE_SIZE 0xc0000000UL
 
-#define ARRAY_START_ADDR	0x400000000000UL - ONE_GB	- ONE_MB
-#define ARRAY_BYTE_SIZE 	9*ONE_GB  // 3GB
+#define ARRAY_START_ADDR	0x400000000000UL - 3*ONE_GB	- ONE_MB
+#define ARRAY_BYTE_SIZE   11*ONE_GB  // 
 
-int online_cores = 16;
+int online_cores = 8;
 
 struct thread_args{
 	size_t	thread_id; // thread index, start from 0
@@ -144,7 +144,7 @@ void *scan_array_random_overleap(void* _args){
 		//debug - check the random level
 		//printf("Thread[%lu] access buf_ptr[%lu], page[%lu] \n", tid, index_to_access, (index_to_access >> (PAGE_SHIFT -3 ) ) );
 
-		sum +=buf_ptr[index_to_access];  // the sum should be 0x7,FFF,FFE,000,000.
+		sum +=buf_ptr[index_to_access];  // the sum should be 0x7,FFF,FFE,000,000. 
 	}
 
 	printf("Thread[%lu] sum : 0x%lx of array_slice[0x%lx, 0x%lx ]  \n", tid, sum, (unsigned long)(buf_ptr + array_start), (unsigned long)(buf_ptr + array_slice)  );
@@ -220,8 +220,8 @@ int main(){
 		args[i].user_buf = user_buff;
 		args[i].thread_id = i;
 		
-		//ret = pthread_create(&threads[i], NULL, scan_array_random_overleap, (void*)&args[i]);
-		ret = pthread_create(&threads[i], NULL, scan_array_sequential_overleap, (void*)&args[i]);
+		ret = pthread_create(&threads[i], NULL, scan_array_random_overleap, (void*)&args[i]);
+		//ret = pthread_create(&threads[i], NULL, scan_array_sequential_overleap, (void*)&args[i]);
 		if (ret){
       printf("ERROR; return code from pthread_create() is %d\n", ret);
       return 0;
