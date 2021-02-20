@@ -1,7 +1,11 @@
 /**
  * Test the user space page fault handler function.
- * For Kernel 4.11.
+ * For Kernel 5.4
  * A Page Fault Notifications is raised and send the polling thread.
+ * 
+ * Use the kernel headers under /usr/include/linux/
+ * Install the kernel headers to this path after chaing it.
+ * 
  * 
  * 1) Page fault can be:
  *  1.1) The first time to touch the virtual memory. Need to map physical memory to the virtual memory range. 
@@ -130,7 +134,7 @@ static void *handler(void *arg)
 	struct pthread_args *p = arg;
 	bool stop = false;
 	char buf[PAGE_SIZE] = "test buffer";  // [?] What's the purpose of this buffer?
-
+	int i;
 
 	fprintf(stderr, "%s, User Fault Handler is on.\n", __func__);
 	// [?] Infinite loop
@@ -199,11 +203,31 @@ static void *handler(void *arg)
 			unsigned long addr = msg.arg.pagefault.address;
 			fprintf(stderr, "%s, Received page fault at 0x%lx \n", __func__, addr);
 
+
+			// Pass information down to kernel
+			struct uffdio_swap_prefetch swap_prefetch;
+			swap_prefetch.prefetch_len	= 1; // page size
+			for(i=0; i< swap_prefetch.prefetch_len; i++){
+				swap_prefetch.prefetch_virt_page[i] = (unsigned long)addr + PAGE_SIZE * i ; // prefetch next page
+			}
+
+			fprintf(stderr, "%s, uffd cmd 0x%lx , args 0x%lx \n", 
+				__func__, (unsigned long)UFFDIO_SWAP_PREFETCH,  (unsigned long)&swap_prefetch);
+
+			if(ioctl(p->uffd, UFFDIO_SWAP_PREFETCH, &swap_prefetch) == -1) {
+				perror("ioctl/swap_prefetch");
+				goto exit_handler;
+			}
+
+
 			struct uffdio_copy copy;
 			copy.src = (unsigned long)buf;
-			copy.dst = (unsigned long)addr;
+			copy.dst = (unsigned long)addr; // the address triggered the uffd
 			copy.len = PAGE_SIZE;
 			copy.mode = 0;  // [?] copy mode ?
+
+			fprintf(stderr, "%s, uffd cmd 0x%lx , args 0x%lx \n", 
+					__func__, (unsigned long)UFFDIO_COPY,  (unsigned long)&copy);
 
 			// Apply the UFFDIO_COPY operation
 			if (ioctl(p->uffd, UFFDIO_COPY, &copy) == -1) {
@@ -296,7 +320,7 @@ int main(int argc, char* argv[]){
 	ptr = user_buf;
 	size_t offset = 8; //bytes
 	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
 	}
 
 
