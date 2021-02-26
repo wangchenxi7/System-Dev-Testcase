@@ -149,10 +149,10 @@ static void *handler(void *arg)
 
 		// wait for a userfaultfd event to occur
 		// parameters: (struct pollfd *fds, nfds_t num_fds, const struct timespec *tmo_p, const sigset_t *sigmask)
-		// 3rd, time out? the poll() will occupy a core and busy wait on it ?
-		// 4th, sigset can be omitted ?
+		// 3rd, time out? if we don't receive any event within the timeout limits, return immediately.
+		//	negative value means wait until get event.
 		fprintf(stderr, "%s, poll on fd 0x%lx \n", __func__, (unsigned long)pollfd);
-		int pollres = poll(pollfd, 1, 2000);
+		int pollres = poll(pollfd, 1, -1);
 
 		if (stop == true)
 			return NULL;
@@ -282,9 +282,18 @@ int main(int argc, char* argv[]){
   // 2) Prepare the user space memory
 	fprintf(stderr, "Phase2, Register [0x%lx, 0x%lx) as range for user page fault handling. \n", 
 																			user_buffer_addr, user_buffer_addr+user_buffer_size );
-  // Reserve space at specified virtual memory.
-  // Access it will lead to page fault.
-  user_buf = commit_anon_memory((char*)user_buffer_addr, user_buffer_size, true);
+  // 2.1 Reserve space at specified virtual memory.
+	// We can commit the range dirrectly without reserving.
+	user_buf = reserve_anon_memory((char*)user_buffer_addr, user_buffer_size, true);
+	if(user_buf == NULL){
+		printf("Reserve user_buffer, 0x%lx failed. \n", user_buffer_addr);
+	}else{
+		printf("Reserve user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
+	}
+	
+	// 2.2 Commit the range 
+	// Access it will lead to page fault.
+	user_buf = commit_anon_memory((char*)user_buffer_addr, user_buffer_size, true);
   if(user_buf == NULL){
 		printf("Commit user_buffer, 0x%lx failed. \n", user_buffer_addr);
 	}else{
