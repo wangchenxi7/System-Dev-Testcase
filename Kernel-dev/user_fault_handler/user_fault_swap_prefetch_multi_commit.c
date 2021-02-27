@@ -1,4 +1,5 @@
 /**
+ * ### Basic Information
  * Test the user space page fault handler function.
  * For Kernel 5.4
  * A Page Fault Notifications is raised and send the polling thread.
@@ -6,29 +7,21 @@
  * Use the kernel headers under /usr/include/linux/
  * Install the kernel headers to this path after chaing it.
  * 
+ * ### Current testcase
+ * The registered virtual memory range must be managed by ONE VMA.
+ * which means that:
+ * 	1) All the pages have same permissions.
+ *  2) Can only be mmap once.
  * 
- * 1) Page fault can be:
- *  1.1) The first time to touch the virtual memory. Need to map physical memory to the virtual memory range. 
- *  1.2) The mapped physical page is swapped out.
+ * When we register a range of virtual memory as user-fault-range,
+ * Kernel allocates and intializes a vma->vm_userfaultfd_ctx->ctx to manage its uffd behaviors.
  * 
- * 2) ioctl ? 
- *    The virtual memory range is treated as a memory backed file ?
- * 
- * 3) The uffd is handled in an asynchronized way.
- *    Need to launch a daemon thread to pool events on specified io fd.
- *    When a page fault is triggerred, kernel will inform the daemon thread via the fd event.
- * 
- * 		[x] kernel return a "struct uffd_msg" back to the daemon thread.
- * 			  The uffd_msg contains the information about which page is on the page fault:
- * 
- * 			struct {
- *				__u64	flags;
-					__u64	address;  // the virtual address, page aligned. However, the do_page_fault() know the extact virtual address.
-					union {
-						__u32 ptid;   // [?] the pthread who triggers the page fault
-					} feat;
-				} pagefault;
- * 
+ * 	struct vm_userfaultfd_ctx {
+ *			struct userfaultfd_ctx *ctx;
+ *	};
+ *
+ *  If we re-mmap a range of virtual memory, its vma will be rebuilt, and the vma->vm_userfaultfd_ctx information is lost.
+ *  
  * 
  */
 
@@ -259,10 +252,6 @@ int main(int argc, char* argv[]){
   unsigned long user_buffer_addr = 0x20000000; // 512MB
   unsigned long user_buffer_size = 0x2000; // 8KB
 
-	char* non_uffd_buf;
-	unsigned long non_uffd_user_buffer_addr = 0x30000000; // 512MB
-	
-
 	pthread_t uffd_thread;  // uffd handler daemon thread.
 
 	int i;
@@ -301,24 +290,10 @@ int main(int argc, char* argv[]){
 		printf("Reserve user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
 	}
 	
-	// 2.2 Commit the range 
-	// Access it will lead to page fault.
-	user_buf = commit_anon_memory((char*)user_buffer_addr, user_buffer_size, true);
-  if(user_buf == NULL){
-		printf("Commit user_buffer, 0x%lx failed. \n", user_buffer_addr);
-	}else{
-		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
-	}
 
-	// 2.2.2 commit the non uffd buffer dirrectly
-	non_uffd_buf = commit_anon_memory((char*)non_uffd_user_buffer_addr, user_buffer_size, true);
-  if(non_uffd_buf == NULL){
-		printf("Commit user_buffer, 0x%lx failed. \n", user_buffer_addr);
-	}else{
-		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
-	}
 
-  
+
+	// 2.1 register uffd after RESERVE
   // Register the virual memory range for the uffd
   struct uffdio_register reg = {
 		.mode = UFFDIO_REGISTER_MODE_MISSING,
@@ -340,25 +315,32 @@ int main(int argc, char* argv[]){
 
 	sleep(1); // wait the launching of the uffd daemon thread.
 
+
+
+	
+	// 2.2 Commit the range - This will change the vma
+	// Access it will lead to page fault.
+	user_buf = commit_anon_memory((char*)user_buffer_addr, user_buffer_size, true);
+  if(user_buf == NULL){
+		printf("Commit user_buffer, 0x%lx failed. \n", user_buffer_addr);
+	}else{
+		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
+	}
+
+
+
 	// 3) Trigger the page fault
 	// 		Touch each page to trigger a page fault.
 	//      
+
 	fprintf(stderr, "Phase3, trigger page fault.\n");
 	
-	// 3.1 non_uffd range
-	ptr = non_uffd_buf;
-	size_t offset = 8; //bytes
-	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
-	}
-	
-	fprintf(stderr, " \n\n access uffd range\n");
 
 	// 3.2 uffd range 
 	ptr = user_buf;
-	offset = 8; //bytes
+	int offset = 8; //bytes
 	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+		fprintf(stderr, "Try to trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
 	}
 
 
