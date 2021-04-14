@@ -80,7 +80,7 @@ static char* reserve_anon_memory(char* requested_addr, unsigned long bytes, bool
 char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 	int prot = (exec == true) ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE;
 	unsigned long res = (unsigned long)mmap(start_addr, size, prot,
-																		 MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);   // MAP_FIXED will override the old mapping
+											MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);   // MAP_FIXED will override the old mapping
 	
 	// commit memory successfully.
 	if (res == (unsigned long) MAP_FAILED) {
@@ -101,8 +101,6 @@ char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 // parameters passed to pthread
 struct pthread_args{
 	int uffd;  // the registered ioctl fd
-
-
 };
 
 
@@ -229,88 +227,92 @@ exit_handler:
 	return NULL;
 }
 
+int main(int argc, char *argv[])
+{
 
+	int fd = 0;
 
-
-
-int main(int argc, char* argv[]){
-
-  int fd = 0;
-  
-  char* user_buf;
+	char *user_buf;
 	unsigned long user_buffer_size = 0x2000; // 8KB
 
-  unsigned long user_buffer_addr_1 = 0x20000000; // 512MB
-	unsigned long user_buffer_addr_2 = user_buffer_addr_1 + user_buffer_size; 
-	unsigned long user_buffer_addr_3 = user_buffer_addr_2 + user_buffer_size;
-	
+	unsigned long user_buffer_addr_1 = 0x20000000; // 512MB
+	unsigned long user_buffer_addr_2 =
+	    user_buffer_addr_1 + user_buffer_size;
+	unsigned long user_buffer_addr_3 =
+	    user_buffer_addr_2 + user_buffer_size;
 
-	pthread_t uffd_thread;  // uffd handler daemon thread.
+	pthread_t uffd_thread; // uffd handler daemon thread.
 
 	int i;
 	char *ptr;
 
-  //
-  // 1) Enable the user fault fd.
+	//
+	// 1) Enable the user fault fd.
 
-  // Get a fd from kernel for user fault usage.
-  // We use this fd to manage a range of virual memory.
-  // O_NONBLOCK : ? The user process is not blocked when the page fault is triggerred ?
-  if ((fd = syscall(__NR_userfaultfd, O_NONBLOCK)) == -1) {
+	// Get a fd from kernel for user fault usage.
+	// We use this fd to manage a range of virual memory.
+	// O_NONBLOCK : ? The user process is not blocked when the page fault is
+	// triggerred ?
+	if ((fd = syscall(__NR_userfaultfd, O_NONBLOCK)) == -1) {
 		printf("++ userfaultfd failed \n");
 		goto out;
 	}
 
-
-  // Enable the user fualt fd API
-  // [?] the fd will lead to ioctl function to userfaultfd_ioctl.
-  struct uffdio_api api = { .api = UFFD_API };
-  if (ioctl(fd, UFFDIO_API, &api)) {
-		printf( "++ ioctl(fd, UFFDIO_API, ...) failed \n");
+	// Enable the user fualt fd API
+	// [?] the fd will lead to ioctl function to userfaultfd_ioctl.
+	struct uffdio_api api = {.api = UFFD_API};
+	if (ioctl(fd, UFFDIO_API, &api)) {
+		printf("++ ioctl(fd, UFFDIO_API, ...) failed \n");
 		goto out;
 	}
 
+	// 2) Prepare the user space memory
+	fprintf(stderr,
+	        "Phase2, Register [0x%lx, 0x%lx) as range for user page fault "
+	        "handling. \n",
+	        user_buffer_addr_1, user_buffer_addr_1 + 3 * user_buffer_size);
 
-  // 2) Prepare the user space memory
-	fprintf(stderr, "Phase2, Register [0x%lx, 0x%lx) as range for user page fault handling. \n", 
-																			user_buffer_addr_1, user_buffer_addr_1+ 3*user_buffer_size );
-
-	
 	// 2.1 Commit the ranges separetely
 	// Access it will lead to page fault.
-	user_buf = commit_anon_memory((char*)user_buffer_addr_1, user_buffer_size, true);
-  if(user_buf == NULL){
-		printf("Commit user_buffer_addr_1, 0x%lx failed. \n", user_buffer_addr_1);
-	}else{
-		printf("Commit user_buffer_addr_1: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr_1, user_buffer_size);
+	user_buf = commit_anon_memory((char *)user_buffer_addr_1,
+	                              user_buffer_size, true);
+	if (user_buf == NULL) {
+		printf("Commit user_buffer_addr_1, 0x%lx failed. \n",
+		       user_buffer_addr_1);
+	} else {
+		printf("Commit user_buffer_addr_1: 0x%lx, bytes_len: 0x%lx \n",
+		       user_buffer_addr_1, user_buffer_size);
 	}
 
 	// buffer 2
-	user_buf = commit_anon_memory((char*)user_buffer_addr_2, user_buffer_size, true);
-  if(user_buf == NULL){
-		printf("Commit user_buffer_addr_2, 0x%lx failed. \n", user_buffer_addr_2);
-	}else{
-		printf("Commit user_buffer_addr_2: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr_2, user_buffer_size);
+	user_buf = commit_anon_memory((char *)user_buffer_addr_2,
+	                              user_buffer_size, true);
+	if (user_buf == NULL) {
+		printf("Commit user_buffer_addr_2, 0x%lx failed. \n",
+		       user_buffer_addr_2);
+	} else {
+		printf("Commit user_buffer_addr_2: 0x%lx, bytes_len: 0x%lx \n",
+		       user_buffer_addr_2, user_buffer_size);
 	}
 
-	user_buf = commit_anon_memory((char*)user_buffer_addr_3, user_buffer_size, true);
-  if(user_buf == NULL){
-		printf("Commit user_buffer_addr_3, 0x%lx failed. \n", user_buffer_addr_3);
-	}else{
-		printf("Commit user_buffer_addr_3: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr_3, user_buffer_size);
+	user_buf = commit_anon_memory((char *)user_buffer_addr_3,
+	                              user_buffer_size, true);
+	if (user_buf == NULL) {
+		printf("Commit user_buffer_addr_3, 0x%lx failed. \n",
+		       user_buffer_addr_3);
+	} else {
+		printf("Commit user_buffer_addr_3: 0x%lx, bytes_len: 0x%lx \n",
+		       user_buffer_addr_3, user_buffer_size);
 	}
 
-  
-  // 2.2 Register these separate virual memory ranges for the uffd
-  struct uffdio_register reg = {
-		.mode = UFFDIO_REGISTER_MODE_MISSING,  /*both minor and major faults*/
-		.range = {
-			.start = (unsigned long)user_buffer_addr_1,
-			.len = user_buffer_size * 3
-		}
-	};
+	// 2.2 Register these separate virual memory ranges for the uffd
+	struct uffdio_register reg = {
+	    .mode =
+	        UFFDIO_REGISTER_MODE_MISSING, /*both minor and major faults*/
+	    .range = {.start = (unsigned long)user_buffer_addr_1,
+	              .len = user_buffer_size * 3}};
 
-  if (ioctl(fd, UFFDIO_REGISTER,  &reg)) {
+	if (ioctl(fd, UFFDIO_REGISTER, &reg)) {
 		fprintf(stderr, "++ ioctl(fd, UFFDIO_REGISTER, ...) failed\n");
 		goto out;
 	}
@@ -324,39 +326,43 @@ int main(int argc, char* argv[]){
 
 	// 3) Trigger the page fault
 	// 		Touch each page to trigger a page fault.
-	//      
+	//
 	fprintf(stderr, "Phase3, trigger page fault.\n");
-	
+
 	// 3.1 uffd range#1
-	ptr = (char*)user_buffer_addr_1;
-	size_t offset = 8; //bytes
-	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Try to trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+	ptr = (char *)user_buffer_addr_1;
+	size_t offset = 8; // bytes
+	for (i = offset; i < user_buffer_size; i += PAGE_SIZE) {
+		fprintf(stderr,
+		        "Try to trigger fault page thread: Page[%d] (addr "
+		        "0x%lx) : %s (value) \n",
+		        i / 4096, (unsigned long)(ptr + i), ptr + i);
 	}
-	
+
 	fprintf(stderr, " \n\n access uffd range\n");
 
 	// 3.2 uffd range #2
-	ptr = (char*)user_buffer_addr_2;;
-	offset = 8; //bytes
-	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Try to trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+	ptr = (char *)user_buffer_addr_2;
+	;
+	offset = 8; // bytes
+	for (i = offset; i < user_buffer_size; i += PAGE_SIZE) {
+		fprintf(stderr,
+		        "Try to trigger fault page thread: Page[%d] (addr "
+		        "0x%lx) : %s (value) \n",
+		        i / 4096, (unsigned long)(ptr + i), ptr + i);
 	}
-
 
 	// 3.2 uffd range #3
-	ptr = (char*)user_buffer_addr_3;;
-	offset = 8; //bytes
-	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Try to trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+	ptr = (char *)user_buffer_addr_3;
+	;
+	offset = 8; // bytes
+	for (i = offset; i < user_buffer_size; i += PAGE_SIZE) {
+		fprintf(stderr,
+		        "Try to trigger fault page thread: Page[%d] (addr "
+		        "0x%lx) : %s (value) \n",
+		        i / 4096, (unsigned long)(ptr + i), ptr + i);
 	}
 
-
-
 out:
-  return 0;
+	return 0;
 }
-
-
-
-

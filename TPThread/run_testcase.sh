@@ -48,7 +48,8 @@ else
   youngRatio=""
 fi
 
-
+# Disable C1 and C2
+JITOption="-Xint"
 
 
 exe_mode=$1

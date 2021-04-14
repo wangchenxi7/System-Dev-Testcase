@@ -9,7 +9,7 @@
 #include <unistd.h>
 #include <sys/mman.h>  
 #include <sys/errno.h>
-#include </usr/include/asm-generic/mman-common.h>
+// #include </usr/include/asm-generic/mman-common.h> // duplicated with sys/mman.h
 
 #include "stdint.h"
 #include "stdio.h"
