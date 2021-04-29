@@ -191,9 +191,10 @@ static void *handler(void *arg)
 
 			// Pass information down to kernel
 			struct uffdio_swap_prefetch swap_prefetch;
-			swap_prefetch.prefetch_len	= 1; // page size
-			for(i=0; i< swap_prefetch.prefetch_len; i++){
-				swap_prefetch.prefetch_virt_page[i] = (unsigned long)addr + PAGE_SIZE * i ; // prefetch next page
+			swap_prefetch.prefetch_chunk_num = 1;
+			swap_prefetch.prefetch_chunk_page_len[0]	= 1; // page size
+			for(i=0; i< swap_prefetch.prefetch_chunk_num; i++){
+				swap_prefetch.prefetch_chunk_start[i] = (unsigned long)addr + PAGE_SIZE * i ; // prefetch next page
 			}
 
 			fprintf(stderr, "%s, uffd cmd 0x%lx , args 0x%lx \n", 

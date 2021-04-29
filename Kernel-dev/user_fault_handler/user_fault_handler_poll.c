@@ -39,6 +39,7 @@
 #include <sys/mman.h>  
 #include <sys/errno.h>
 
+#include <stdlib.h>
 #include <sys/ioctl.h>
 #include <poll.h>
 #include <fcntl.h>
@@ -115,8 +116,6 @@ char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 // parameters passed to pthread
 struct pthread_args{
 	int uffd;  // the registered ioctl fd
-
-
 };
 
 
@@ -215,6 +214,9 @@ static void *handler(void *arg)
 	}
 
 exit_handler:
+	// free resouce
+	free(arg);
+
 	return NULL;
 }
 
@@ -283,9 +285,11 @@ int main(int argc, char* argv[]){
 	}
 
 	// launch a daemon thread to handle the page fault.
-	struct pthread_args p;
-	p.uffd = fd; // pass the uffd to the daemon thread
-	pthread_create(&uffd_thread, NULL, handler, &p);
+	// Do NOT use local variables as thread parameter.
+	// It can be freed before the creatd thread use it.
+	struct pthread_args* p = (struct pthread_args*)malloc(sizeof(struct pthread_args));
+	p->uffd = fd; // pass the uffd to the daemon thread
+	pthread_create(&uffd_thread, NULL, handler, p);
 
 	sleep(1); // wait the launching of the uffd daemon thread.
 
@@ -299,6 +303,13 @@ int main(int argc, char* argv[]){
 		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
 	}
 
+	sleep(1);
+
+	// check if we write/fill the data correctly
+	// Fill from the begging of page.
+	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
+		fprintf(stderr, "Print th value of string %s \n", (char*)(ptr + i));
+	}
 
 
 out:

@@ -49,7 +49,7 @@
 #include <linux/userfaultfd.h>
 #include <pthread.h>
 
-
+#include "stdlib.h"
 #include "stdint.h"
 #include "stdio.h"
 #include "stddef.h"
@@ -63,8 +63,13 @@ extern errno;
 	#define PAGE_SIZE 4096
 #endif
 
+#ifndef PAGE_SHIFT
+  #define PAGE_SHIFT	(12UL)
+#endif
 
-
+#ifndef PAGE_MASK
+  #define PAGE_MASK (~((1UL << PAGE_SHIFT) - 1))
+#endif
 
 /**
  * Reserve memory at fixed address 
@@ -205,18 +210,19 @@ static void *handler(void *arg)
 		//     Don't we allocate physical page to the virtual page first ??
 		//     Or the kernel will handle the physical page allocation directly ?
 		if (msg.event & UFFD_EVENT_PAGEFAULT) {
+			//unsigned long addr = msg.arg.pagefault.address & PAGE_MASK;  // page down alignment
 			unsigned long addr = msg.arg.pagefault.address;
 			fprintf(stderr, "%s, Received page fault at 0x%lx \n", __func__, addr);
 
 
 			// Pass information down to kernel
 			struct uffdio_swap_prefetch swap_prefetch;
-			swap_prefetch.prefetch_len	= 1; // page size
-			for(i=0; i< swap_prefetch.prefetch_len; i++){
-				swap_prefetch.prefetch_virt_page[i] = (unsigned long)addr + PAGE_SIZE * i ; // prefetch next page
-			}
-
-			fprintf(stderr, "%s, uffd cmd 0x%lx , args 0x%lx \n", 
+			swap_prefetch.vma_addr = 0; // only swap fault use this field. 
+			swap_prefetch.prefetch_chunk_num = 1;	// 1 segment of pages
+			swap_prefetch.prefetch_chunk_page_len[0]	= 1; // 1 page 
+			swap_prefetch.prefetch_chunk_start[0] = (unsigned long)addr + PAGE_SIZE ; // prefetch next page
+			
+			fprintf(stderr, "%s, UFFDIO_SWAP_PREFETCH  uffd cmd 0x%lx , args 0x%lx \n", 
 				__func__, (unsigned long)UFFDIO_SWAP_PREFETCH,  (unsigned long)&swap_prefetch);
 
 			if(ioctl(p->uffd, UFFDIO_SWAP_PREFETCH, &swap_prefetch) == -1) {
@@ -224,14 +230,13 @@ static void *handler(void *arg)
 				goto exit_handler;
 			}
 
-
 			struct uffdio_copy copy;
 			copy.src = (unsigned long)buf;
 			copy.dst = (unsigned long)addr; // the address triggered the uffd
 			copy.len = PAGE_SIZE;
 			copy.mode = 0;  // [?] copy mode ?
 
-			fprintf(stderr, "%s, uffd cmd 0x%lx , args 0x%lx \n", 
+			fprintf(stderr, "%s, UFFDIO_COPY uffd cmd 0x%lx , args 0x%lx \n", 
 					__func__, (unsigned long)UFFDIO_COPY,  (unsigned long)&copy);
 
 			// Apply the UFFDIO_COPY operation
@@ -241,9 +246,12 @@ static void *handler(void *arg)
 			}
 		}
 
-	}
+	} // infinite for loop
 
 exit_handler:
+	// free resource
+	free(arg);
+
 	return NULL;
 }
 
@@ -334,9 +342,9 @@ int main(int argc, char* argv[]){
 	}
 
 	// launch a daemon thread to handle the page fault.
-	struct pthread_args p;
-	p.uffd = fd; // pass the uffd to the daemon thread
-	pthread_create(&uffd_thread, NULL, handler, &p);
+	struct pthread_args* p = (struct pthread_args*)malloc(sizeof(struct pthread_args));
+	p->uffd = fd; // pass the uffd to the daemon thread
+	pthread_create(&uffd_thread, NULL, handler, p);
 
 	sleep(1); // wait the launching of the uffd daemon thread.
 
@@ -361,6 +369,7 @@ int main(int argc, char* argv[]){
 		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
 	}
 
+	sleep(1);
 
 
 out:
