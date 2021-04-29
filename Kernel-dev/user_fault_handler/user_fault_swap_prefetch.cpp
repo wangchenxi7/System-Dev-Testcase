@@ -54,8 +54,8 @@
 #include "stdio.h"
 #include "stddef.h"
 
-
-typedef enum {true, false} bool;
+// c++ stl multithread random number generator
+#include <random>
 
 extern errno;
 
@@ -70,6 +70,11 @@ extern errno;
 #ifndef PAGE_MASK
   #define PAGE_MASK (~((1UL << PAGE_SHIFT) - 1))
 #endif
+
+#ifndef ONE_MB
+	#define ONE_MB 1UL<<20
+#endif
+
 
 /**
  * Reserve memory at fixed address 
@@ -136,7 +141,7 @@ struct pthread_args{
 // pooling the fd events 
 static void *handler(void *arg)
 {
-	struct pthread_args *p = arg;
+	struct pthread_args *p = (struct pthread_args*)arg;
 	bool stop = false;
 	char buf[PAGE_SIZE] = "test buffer";  // [?] What's the purpose of this buffer?
 	int i;
@@ -210,14 +215,17 @@ static void *handler(void *arg)
 		//     Don't we allocate physical page to the virtual page first ??
 		//     Or the kernel will handle the physical page allocation directly ?
 		if (msg.event & UFFD_EVENT_PAGEFAULT) {
-			//unsigned long addr = msg.arg.pagefault.address & PAGE_MASK;  // page down alignment
+			unsigned long aligned_addr = msg.arg.pagefault.address & PAGE_MASK;  // page down alignment
 			unsigned long addr = msg.arg.pagefault.address;
 			fprintf(stderr, "%s, Received page fault at 0x%lx \n", __func__, addr);
 
 
 			// Pass information down to kernel
 			struct uffdio_swap_prefetch swap_prefetch;
-			swap_prefetch.vma_addr = 0; // only swap fault use this field. 
+			swap_prefetch.vma_addr = msg.arg.reserved.reserved1;
+			if(msg.arg.reserved.reserved1 == 0UL){
+				fprintf(stderr, "%s, UFFDIO_SWAP_PREFETCH get a NULL vma field from uffd_msg message.", __func__);
+			}
 			swap_prefetch.prefetch_chunk_num = 1;	// 1 segment of pages
 			swap_prefetch.prefetch_chunk_page_len[0]	= 1; // 1 page 
 			swap_prefetch.prefetch_chunk_start[0] = (unsigned long)addr + PAGE_SIZE ; // prefetch next page
@@ -230,20 +238,20 @@ static void *handler(void *arg)
 				goto exit_handler;
 			}
 
-			struct uffdio_copy copy;
-			copy.src = (unsigned long)buf;
-			copy.dst = (unsigned long)addr; // the address triggered the uffd
-			copy.len = PAGE_SIZE;
-			copy.mode = 0;  // [?] copy mode ?
+			// struct uffdio_copy copy;
+			// copy.src = (unsigned long)buf;
+			// copy.dst = (unsigned long)aligned_addr ; // the address triggered the uffd
+			// copy.len = PAGE_SIZE;
+			// copy.mode = 0;  // [?] copy mode ?
 
-			fprintf(stderr, "%s, UFFDIO_COPY uffd cmd 0x%lx , args 0x%lx \n", 
-					__func__, (unsigned long)UFFDIO_COPY,  (unsigned long)&copy);
+			// fprintf(stderr, "%s, UFFDIO_COPY uffd cmd 0x%lx , args 0x%lx \n", 
+			// 		__func__, (unsigned long)UFFDIO_COPY,  (unsigned long)&copy);
 
-			// Apply the UFFDIO_COPY operation
-			if (ioctl(p->uffd, UFFDIO_COPY, &copy) == -1) {
-				perror("ioctl/copy");
-				goto exit_handler;
-			}
+			// // Apply the UFFDIO_COPY operation
+			// if (ioctl(p->uffd, UFFDIO_COPY, &copy) == -1) {
+			// 	perror("ioctl/copy");
+			// 	goto exit_handler;
+			// }
 		}
 
 	} // infinite for loop
@@ -264,17 +272,12 @@ int main(int argc, char* argv[]){
   int fd = 0;
   
   char* user_buf;
-  unsigned long user_buffer_addr = 0x20000000; // 512MB
-  unsigned long user_buffer_size = 0x2000; // 8KB
-
-	char* non_uffd_buf;
-	unsigned long non_uffd_user_buffer_addr = 0x30000000; // 512MB
-	
+  unsigned long user_buffer_addr = 0x400000000000UL; // start addr
+  unsigned long user_buffer_size = 0x10000000; // 128MB size 
 
 	pthread_t uffd_thread;  // uffd handler daemon thread.
-
 	int i;
-	char *ptr;
+	unsigned long *ptr;
 
    //
    // 1) Enable the user fault fd.
@@ -284,7 +287,7 @@ int main(int argc, char* argv[]){
   // O_NONBLOCK : ? The user process is not blocked when the page fault is triggerred ?
   if ((fd = syscall(__NR_userfaultfd, O_NONBLOCK)) == -1) {
 		printf("++ userfaultfd failed \n");
-		goto out;
+		return 0;
 	}
 
 
@@ -293,7 +296,7 @@ int main(int argc, char* argv[]){
   struct uffdio_api api = { .api = UFFD_API };
   if (ioctl(fd, UFFDIO_API, &api)) {
 		printf( "++ ioctl(fd, UFFDIO_API, ...) failed \n");
-		goto out;
+		return 0;
 	}
 
 
@@ -318,27 +321,19 @@ int main(int argc, char* argv[]){
 		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
 	}
 
-	// 2.2.2 commit the non uffd buffer dirrectly
-	non_uffd_buf = commit_anon_memory((char*)non_uffd_user_buffer_addr, user_buffer_size, true);
-  if(non_uffd_buf == NULL){
-		printf("Commit user_buffer, 0x%lx failed. \n", user_buffer_addr);
-	}else{
-		printf("Commit user_buffer: 0x%lx, bytes_len: 0x%lx \n",user_buffer_addr, user_buffer_size);
-	}
-
   
-  // Register the virual memory range for the uffd
-  struct uffdio_register reg = {
-		.mode = UFFDIO_REGISTER_MODE_MISSING,
-		.range = {
-			.start = (unsigned long)user_buf,
-			.len = user_buffer_size
-		}
-	};
+  // UFFDIO_REGISTER_MODE_WP : Register the virual memory range for the uffd, swap fault event.
+	// Pass the page addr triggered the major swap fault.
+	// In some design, only pass the page fault info to user when the fault pattern can't be detected by kernle prefetcher.
+	struct uffdio_register reg;
+	reg.mode = UFFDIO_REGISTER_MODE_WP;
+	reg.range.start = (unsigned long)user_buf;
+	reg.range.len = user_buffer_size;
+
 
   if (ioctl(fd, UFFDIO_REGISTER,  &reg)) {
 		fprintf(stderr, "++ ioctl(fd, UFFDIO_REGISTER, ...) failed\n");
-		goto out;
+		return 0;
 	}
 
 	// launch a daemon thread to handle the page fault.
@@ -352,27 +347,41 @@ int main(int argc, char* argv[]){
 	// 		Touch each page to trigger a page fault.
 	//      
 	fprintf(stderr, "Phase3, trigger page fault.\n");
-	
-	// 3.1 non_uffd range
-	ptr = non_uffd_buf;
-	size_t offset = 8; //bytes
-	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+	unsigned long sum = 0;
+
+	// 3.1
+	fprintf(stderr, " \n\n access uffd range in sequential pattern \n");
+	ptr = (unsigned long*)user_buf;
+	int offset = 0; //bytes
+	int end = user_buffer_size/sizeof(unsigned long);
+	int step = 1;
+	for(i=offset; i<end; i+= step ){
+		//fprintf(stderr, "Trigger fault on non-uffd range thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+		*(ptr+i) = (unsigned long)i;
 	}
-	
-	fprintf(stderr, " \n\n access uffd range\n");
 
 	// 3.2 uffd range 
-	ptr = user_buf;
-	offset = 8; //bytes
-	for(i=offset; i<user_buffer_size; i+=PAGE_SIZE ){
-		fprintf(stderr, "Trigger fault page thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+	/*
+	fprintf(stderr, " \n\n access uffd range in random pattern \n");
+
+	// MT random number generator
+	thread_local std::mt19937 engine(std::random_device{}());
+	std::uniform_int_distribution<int> dist(1, user_buffer_size);
+
+
+	ptr = (unsigned long*)user_buf;
+	offset = 0; //bytes
+	end = user_buffer_size/sizeof(unsigned long);
+	step = 8 * ONE_MB;
+
+	for(i=offset; i<end; i+=step ){
+		//fprintf(stderr, "Trigger fault on uffd range thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
+		unsigned long array_index = (unsigned long)dist(engine)/sizeof(unsigned long) % end;
+		sum += (unsigned long)*(ptr + array_index);
 	}
 
-	sleep(1);
-
-
-out:
+	fprintf(stderr, "%s, sum %lu \n", __func__, sum);
+*/
   return 0;
 }
 
