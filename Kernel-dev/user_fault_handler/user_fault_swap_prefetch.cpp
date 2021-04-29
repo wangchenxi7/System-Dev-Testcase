@@ -215,9 +215,9 @@ static void *handler(void *arg)
 		//     Don't we allocate physical page to the virtual page first ??
 		//     Or the kernel will handle the physical page allocation directly ?
 		if (msg.event & UFFD_EVENT_PAGEFAULT) {
-			unsigned long aligned_addr = msg.arg.pagefault.address & PAGE_MASK;  // page down alignment
 			unsigned long addr = msg.arg.pagefault.address;
-			fprintf(stderr, "%s, Received page fault at 0x%lx \n", __func__, addr);
+			unsigned pid = msg.arg.pagefault.feat.ptid;
+			fprintf(stderr, "%s, Received page fault, Thread id %u at addr 0x%lx \n", __func__, pid, addr);
 
 
 			// Pass information down to kernel
@@ -238,21 +238,7 @@ static void *handler(void *arg)
 				goto exit_handler;
 			}
 
-			// struct uffdio_copy copy;
-			// copy.src = (unsigned long)buf;
-			// copy.dst = (unsigned long)aligned_addr ; // the address triggered the uffd
-			// copy.len = PAGE_SIZE;
-			// copy.mode = 0;  // [?] copy mode ?
-
-			// fprintf(stderr, "%s, UFFDIO_COPY uffd cmd 0x%lx , args 0x%lx \n", 
-			// 		__func__, (unsigned long)UFFDIO_COPY,  (unsigned long)&copy);
-
-			// // Apply the UFFDIO_COPY operation
-			// if (ioctl(p->uffd, UFFDIO_COPY, &copy) == -1) {
-			// 	perror("ioctl/copy");
-			// 	goto exit_handler;
-			// }
-		}
+		}// get UFFD_EVENT_PAGEFAULT
 
 	} // infinite for loop
 
@@ -349,7 +335,7 @@ int main(int argc, char* argv[]){
 	fprintf(stderr, "Phase3, trigger page fault.\n");
 	unsigned long sum = 0;
 
-	// 3.1
+	// 3.1 uffd range in sequential
 	fprintf(stderr, " \n\n access uffd range in sequential pattern \n");
 	ptr = (unsigned long*)user_buf;
 	int offset = 0; //bytes
@@ -360,8 +346,7 @@ int main(int argc, char* argv[]){
 		*(ptr+i) = (unsigned long)i;
 	}
 
-	// 3.2 uffd range 
-	/*
+	// 3.2 uffd range in random
 	fprintf(stderr, " \n\n access uffd range in random pattern \n");
 
 	// MT random number generator
@@ -372,16 +357,15 @@ int main(int argc, char* argv[]){
 	ptr = (unsigned long*)user_buf;
 	offset = 0; //bytes
 	end = user_buffer_size/sizeof(unsigned long);
-	step = 8 * ONE_MB;
 
-	for(i=offset; i<end; i+=step ){
+	for(i=0; i<128; i++ ){
 		//fprintf(stderr, "Trigger fault on uffd range thread: Page[%d] (addr 0x%lx) : %s (value) \n", i/4096, (unsigned long)(ptr+i), ptr+i );
 		unsigned long array_index = (unsigned long)dist(engine)/sizeof(unsigned long) % end;
 		sum += (unsigned long)*(ptr + array_index);
 	}
 
 	fprintf(stderr, "%s, sum %lu \n", __func__, sum);
-*/
+
   return 0;
 }
 
