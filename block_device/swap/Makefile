@@ -3,14 +3,14 @@
 PTHREAD= -lpthread
 
 CFLAGS= -O0 -g
-
+CXXFLAGS= -std=c++11
 
 all:
 	cc ${CFLAGS} swap_streaming.c -o swap_streaming.o
 	cc ${CFLAGS} swap_mmap.c -o swap_mmap.o
 	cc ${CFLAGS} swap_mmap_random.c -o swap_mmap_random.o
 	cc ${CFLAGS} swap_mmap_dual_path.c ${PTHREAD} -o swap_mmap_dual_path.o
-	c++ ${CFLAGS} swap_mmap_multi_thread.cpp ${PTHREAD} -o swap_mmap_multi_thread.o
+	c++ ${CFLAGS} ${CXXFLAGS} swap_mmap_multi_thread.cpp ${PTHREAD} -o swap_mmap_multi_thread.o
 	cc ${CFLAGS} add_page_to_inactive_list.c -o add_page_to_inactive_list.o
 	cc ${CFLAGS} flush_page_to_swap_imm.c -o flush_page_to_swap_imm.o
 	cc ${CFLAGS} swap_out_ratio_flush_based.c -o swap_out_ratio_flush_based.o

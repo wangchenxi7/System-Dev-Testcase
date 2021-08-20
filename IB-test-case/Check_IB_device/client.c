@@ -33,7 +33,7 @@ int  main(int argc, char* argv[]){
     return -1;
   }else{
       //print the attributs of the infiniband device.
-      printf("max_mr_size: 0x%llx \n", device_attr->max_mr_size );
+      printf("max_mr_size: 0x%lx \n", device_attr->max_mr_size );
       printf("max_qp: 0x%x \n", device_attr->max_qp );
       printf("max_qp_wr: 0x%x \n", device_attr->max_qp_wr );
       printf("max_sge: 0x%x \n", device_attr->max_sge );
