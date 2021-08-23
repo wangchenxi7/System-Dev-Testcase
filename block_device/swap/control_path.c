@@ -10,6 +10,10 @@
 #include "stdint.h"
 #include "stdio.h"
 
+// Get the macro values in this header
+//#include <linux/swap_global_struct.h>
+#define NUM_OF_MEMORY_SERVER 2
+
 
 // Define a name for syscall do_semeru_rdma_ops
 #define SYS_do_semeru_rdma_ops  333 
@@ -72,12 +76,13 @@ int main(){
 				
 	int type = 0x1;
 	unsigned long request_addr 	= 0x400080000000;
-	//unsigned long size  					=	0x1e000;		// 8KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
+	//unsigned long size  			=	0x1e000;		// 8KB, have to confirm  the physical memory are contiguous, if the large than 16KB, use huge page.
 	unsigned long size  				=	0x40000000; // 64(30+30+4) pages, test scatter-gather design.
 	char* user_buff;
 	unsigned long i;
-	unsigned long initial_val		= -1;  //
-	int syscall_ret 				= 0;
+	int mem_server_id;
+	unsigned long initial_val		= -1;  // 0xffff ... ff
+	int syscall_ret 						= 0;
 
 	// 1) reserve space by mmap
 	user_buff = reserve_anon_memory((char*)request_addr, size, true );
@@ -106,14 +111,19 @@ int main(){
 	// 1) RDMA write
 	//
 	type = 0x2;
-	printf("Before syscall - RDMA Write, first unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)user_buff);
-  syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, user_buff, size);
-  printf("Invoke#1, System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
+	for(mem_server_id = 0; mem_server_id< NUM_OF_MEMORY_SERVER; mem_server_id++){
 
-	printf("	Pressure test, writ the data again.\n");
-	syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, user_buff, size);
-  printf("Invoke#2, System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
+		printf("Before syscall - memory server[%d] RDMA Write, first unsigned long of the user_buffer: 0x%lx \n",
+			mem_server_id, *(unsigned long*)user_buff);
+  	syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, mem_server_id, user_buff, size);
+  	printf("Invoke#1, System call id SYS_do_semeru_rdma_ops, type 0x%x , memory server[%d], returned %d \n", 
+			type, mem_server_id, syscall_ret);
 
+		printf(" memory server[%d]	Pressure test, write the data again.\n", mem_server_id);
+		syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, mem_server_id, user_buff, size);
+  	printf("Invoke#2, System call id SYS_do_semeru_rdma_ops, type 0x%x, memory server[%d], returned %d \n", 
+			type, mem_server_id, syscall_ret);
+	}
 
 	//sleep(5);
 
@@ -122,20 +132,22 @@ int main(){
   // 2) RDMA read
   //
 	type =0x1;
-	// reset the value to test read/write 
-	printf("reset the value on current server to 0. \n");
-	for(i=0; i< size/sizeof(unsigned long); i++ ){
-		buf_ptr[i] = 0;  // the max value.
-	}
 
+	for(mem_server_id = 0; mem_server_id< NUM_OF_MEMORY_SERVER; mem_server_id++){
+		// reset the value to test read/write 
+		printf("reset the value on CPU server to 0. \n");
+		for(i=0; i< size/sizeof(unsigned long); i++ ){
+			buf_ptr[i] = 0;  // the max value.
+		}
 
-	printf("Before syscall - RDMA read, first unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)user_buff);
+		printf("Before syscall - memory server[%d] RDMA read, first unsigned long of the user_buffer: 0x%lx \n",
+			mem_server_id, *(unsigned long*)user_buff);
 
-  syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, user_buff, size);
-  printf("System call id SYS_do_semeru_rdma_ops, type 0x%x returned %d \n", type, syscall_ret);
-  
-	sleep(3);
-
+  	syscall_ret = syscall(SYS_do_semeru_rdma_ops, type, mem_server_id, user_buff, size);
+  	printf("System call id SYS_do_semeru_rdma_ops, type 0x%x, memory server[%d], returned %d \n", 
+			type, mem_server_id, syscall_ret);
+  	
+		sleep(3);
 
 	// busy checking the first unsigned long value of the buffer.
 	// give rdma some time to run
@@ -152,8 +164,12 @@ int main(){
 
 	// }
 
-	printf("After syscall RDMA read, FIRST unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)user_buff);
-	printf("After syscall RDMA read, LAST unsigned long of the user_buffer: 0x%lx \n",*(unsigned long*)(user_buff +  size/sizeof(unsigned long) - 1) );
+		printf("After syscall RDMA read,  memory server[%d], FIRST unsigned long of the user_buffer: 0x%lx \n",
+			mem_server_id, *(unsigned long*)user_buff);
+		printf("After syscall RDMA read, memory server[%d], LAST unsigned long of the user_buffer: 0x%lx \n",
+			mem_server_id, *(unsigned long*)(user_buff +  size/sizeof(unsigned long) - 1) );
+
+	}
 
 	return 0;
 }

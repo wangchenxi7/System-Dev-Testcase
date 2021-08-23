@@ -21,6 +21,10 @@ int main(void)
 {
 
 		int **a;
+    int *b;
+
+    printf(" &(b) is 0x%lx, a is 0x%lx \n", (size_t)&b, (size_t)a);
+    printf("Warning : a can be any random value or null\n");
 
 		a = (int **)malloc(sizeof(int *) * 2);
 
