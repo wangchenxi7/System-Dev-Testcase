@@ -70,8 +70,8 @@ int main(){
 	int type = 0x1;
 	unsigned long request_addr 	= 0x400100000000; //Start at Data Region
 	//unsigned long request_addr 	= 0x400000000000; //  Start at Meta Region
-	unsigned long size  		= 0x400000000;	// 16GB,
-	//unsigned long size  		= 0x80000000;	// 2GB, unsigned long array
+	//unsigned long size  		= 0x400000000;	// 16GB,
+	unsigned long size  		= 0x80000000;	// 2GB, unsigned long array
 	//unsigned long size  		= 0x40000000; // 1GB
 	//unsigned long size  		= 0x3000000;	// 48MB, for unsigned long, length is 0x4,000,000
 	
