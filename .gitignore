@@ -1,4 +1,9 @@
 *.o
+*.ko
 *.so
 *.ass
 *.class
+*.o.cmd
+*.ko.cmd
+*.mod.c
+*.order
