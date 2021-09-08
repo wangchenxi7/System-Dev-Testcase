@@ -24,8 +24,11 @@ all:
 	cc ${CFLAGS} swap_counter_read.c -o swap_counter_read.o
 	cc ${CFLAGS} remoteswap_reset_counter.c -o remoteswap_reset_counter.o
 	cc ${CFLAGS} remoteswap_read_counter.c -o remoteswap_read_counter.o
+	cc ${CFLAGS} remoteswap_reset_latency_counter.c -o remoteswap_reset_latency_counter.o
+	cc ${CFLAGS} remoteswap_read_latency_counter.c -o remoteswap_read_latency_counter.o
 
 clean:
 	rm swap_streaming.o swap_mmap.o add_page_to_inactive_list.o  flush_page_to_swap_imm.o swap_out_ratio_flush_based.o  control_path.o \
 			control_path_after_data_path_flush.o   on_demand_swapin.o  on_demand_swapin_monitor.o swap_info_count.o swap_reset_counter.o \
-			swap_counter_read.o swap_mmap_dual_path.o swap_mmap_random.o  swap_mmap_multi_thread.o remoteswap_reset_counter.o remoteswap_read_counter.o
+			swap_counter_read.o swap_mmap_dual_path.o swap_mmap_random.o  swap_mmap_multi_thread.o remoteswap_reset_counter.o remoteswap_read_counter.o \
+			remoteswap_reset_latency_counter.o remoteswap_read_latency_counter.o
