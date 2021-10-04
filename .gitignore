@@ -7,3 +7,4 @@
 *.ko.cmd
 *.mod.c
 *.order
+*.out
