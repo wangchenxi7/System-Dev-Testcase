@@ -14,26 +14,20 @@
 #define SYS_SWAP_STAT_RESET			335
 #define SYS_ON_DEMAND_SWAPIN		337
 
+int main()
+{
 
-
-int main(){
-				
 	int type = 0x1;
-	unsigned long request_addr 	= 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
-	unsigned long size  					=	0x40000000;		// 1GB data
+	unsigned long request_addr = 0x40000000; // start of RDMA meta space, 1GB not exceed the swap partitio size.
+	unsigned long size = 0x40000000;		 // 1GB data
 
-
-  printf("	Reset the swap out statistics monitoring array\n");
+	printf("	Reset the swap out statistics monitoring array\n");
 	int ret = syscall(SYS_SWAP_STAT_RESET, request_addr, size);
 	printf("	SYS_SWAP_STAT_RESET returned %d \n", ret);
 
 	printf("	#1 Check current swapped out pages num\n");
 	unsigned long on_demand_swapin = syscall(SYS_ON_DEMAND_SWAPIN);
-	printf("	#1 on-demand swap-in pages num 0x%lx \n", on_demand_swapin);  // should be 0.
+	printf("	#1 on-demand swap-in pages num 0x%lx \n", on_demand_swapin); // should be 0.
 
-
-
-
-  return 0;
-
+	return 0;
 }

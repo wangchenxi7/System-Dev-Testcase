@@ -20,7 +20,7 @@ int main(){
 	int hit_on_prefetch_num = 0;
 
 
-  printf("	Reset the swap out statistics monitoring array\n");
+  	printf("	Reset the swap out statistics monitoring array\n");
 	syscall(SYS_SWAP_STAT_RESET);
 	printf("	SYS_SWAP_STAT_RESET done.\n");
 
