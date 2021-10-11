@@ -127,11 +127,21 @@ int main(){
 		// print the value of the initialized page
 		// As a result, we are expecting the data as 
 		// page[0], unsigned long offset[0] : 0
-		// page[1], unsigned long offset[0] : 0
-		// page[2], unsigned long offset[0] : 1
+		// page[0], unsigned long offset[0] : 1
+		// page[1], unsigned long offset[0] : 1
+		// page[1], unsigned long offset[0] : 2
+		// page[2], unsigned long offset[0] : 2
 		// ...
-		printf("Page[%lu], unsigned long offset[%d] : %lu \n",
-			j/(PAGE_SIZE/sizeof(unsigned long)), 0, buf_ptr[j+0]);
+		if(j > 0){
+			// previous page
+			// We overwrite the data on previous page
+			printf("Prev Page[%lu], unsigned long offset[%d] : %lu \n",
+				j/(PAGE_SIZE/sizeof(unsigned long)) -1 , 0, buf_ptr[j - (PAGE_SIZE/sizeof(unsigned long)) +0]);
+
+			// current page
+			printf("Page[%lu], unsigned long offset[%d] : %lu \n\n",
+				j/(PAGE_SIZE/sizeof(unsigned long)), 0, buf_ptr[j+0]);
+		}
 	}
 
 	sum =0;
