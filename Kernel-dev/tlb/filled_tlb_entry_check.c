@@ -116,6 +116,11 @@ int main(){
 	printf("Phase #1, Initialize the content of each Page. \n");
 	unsigned long * buf_ptr = (unsigned long*)user_buff;
 	for(j=0; j< size/sizeof(unsigned long); j+=(PAGE_SIZE/sizeof(unsigned long)) ){
+
+		// read the initial value before wrting
+		printf("before write: page[%lu], unsigned long offset[%d] : %lu\n",
+			j/(PAGE_SIZE/sizeof(unsigned long)), 0,	buf_ptr[j+0]);
+
 		for(i= 0; i<(PAGE_SIZE/sizeof(unsigned long)) ; i++ ){
 			// Initialize the content of the page to the page num.
 			// Trigger a page fault here.
