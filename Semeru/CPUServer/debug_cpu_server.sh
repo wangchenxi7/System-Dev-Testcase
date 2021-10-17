@@ -24,7 +24,8 @@ fi
 ###
 # File to be executed
 BenchPath="${HOME}/System-Dev-Testcase/Semeru/CPUServer"
-EXEC_JAVA_HOME="/mnt/ssd/wcx/JDK/build/linux-x86_64-server-fastdebug/jdk"
+#EXEC_JAVA_HOME="/mnt/ssd/wcx/JDK/build/linux-x86_64-server-fastdebug/jdk"
+EXEC_JAVA_HOME="${HOME}/Semeru-dev/CPU-Server/build/linux-x86_64-server-slowdebug/jdk"
 
 
 # Java path follow the JAVA_HOME
@@ -37,7 +38,7 @@ EXEC_JAVA_HOME="/mnt/ssd/wcx/JDK/build/linux-x86_64-server-fastdebug/jdk"
 EnableSemeruMemPool="true"
 #EnableSemeruMemPool="false"
 
-SemeruMemPoolSize="32G"
+SemeruMemPoolSize="8G"
 #SemeruMemPool=""
 
 # Region size and Heap's allocation alignment.
