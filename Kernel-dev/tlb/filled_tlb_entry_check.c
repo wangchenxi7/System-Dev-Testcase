@@ -6,6 +6,165 @@
  * 		We trigger anonymous page fault on specific virtual range.
  * 		And then, let kernel always insert its previous PTE into the TLB buffer.
  * 		As a result, this app expects getting the previos page's result back instead of its own page.
+ * 
+ * Expected out results:
+ * 
+ * ######## User program outputs ########
+ * 
+ * Request fixed addr 0x400100000000 Reserve user_buffer: 0x400100000000, bytes_len: 0x100000
+ * Commit user_buffer: 0x400100000000, bytes_len: 0x100000
+ * Phase #1, Initialize the content of each Page.
+ * before write: page[0], unsigned long offset[0] : 0
+ * Page[0], unsigned long offset[0] : 0
+ * 
+ * // Full tlb flush
+ * before write: page[1], unsigned long offset[0] : 0  // Fill the physical page of page[0], value is 0
+ * Prev Page[0], unsigned long offset[0] : 1 // after write on virtual page[1], the original data of physical page[0] is overwriten to 1
+ * Page[1], unsigned long offset[0] : 1 // virt page[1] points physical page[0], overwriten to 1
+ * 
+ * // Full tlb flush
+ * before write: page[2], unsigned long offset[0] : 0 // PF, fill physical page[1], empty.
+ * Prev Page[1], unsigned long offset[0] : 0 // Write PF on virt page[2], load physical page[2] from primary PT.
+ * Page[2], unsigned long offset[0] : 2 // virt page[2] points to physical page[2], overwriten to 2
+ * 
+ * // Full tlb flush
+ * before write: page[3], unsigned long offset[0] : 2 // PF, Fill physical page[2], value 2
+ * Prev Page[2], unsigned long offset[0] : 3 // Write hit on physical page[2], overwrite physical page[2] to 3
+ * Page[3], unsigned long offset[0] : 3 // virt page[3] points physical [2], overwriten to 3
+ * 
+ * // Full tlb flush
+ * before write: page[4], unsigned long offset[0] : 0 
+ * Prev Page[3], unsigned long offset[0] : 0
+ * Page[4], unsigned long offset[0] : 4
+ * 
+ * // Full tlb flush
+ * before write: page[5], unsigned long offset[0] : 4
+ * Prev Page[4], unsigned long offset[0] : 5
+ * Page[5], unsigned long offset[0] : 5
+ * 
+ * 
+ * 
+ * 
+ * ######## Kernel logs ########
+ * 
+ * // read fault, push fake TLB w/o dirty bit
+ * [Oct20 10:29] arch_push_to_tlb, core #37 fault on 0x400100000000,
+ *                                 original pte 0x8000000002e6b205,
+ *                                 pushed fake pte addr 0xffff88810f96b000,
+ *                                 val 0x8000000002e6b225
+ * [  +0.000009] cur_page, pte 0x8000000002e6b225, P 0x1, A 0x20, D 0x0
+ *                 mapped kernel virt 0xffff888002e6b000, the first size_t is 0
+ *               user_virt_addr 0x400100000000, value 0
+ * [  +0.000005] arch_push_to_tlb, core #37 read usr virt 0x400100000000
+ * 
+ * // write on  the fake pte w/o dirty bit, trigger another page fault
+ * [  +0.000054] prev_page, pte 0x800000305cec7847, P 0x1, A 0x0, D 0x40
+ *                 mapped kernel virt 0xffff88b05cec7000, the first size_t is 0
+ *                 user_virt_addr 0x4000fffff000, value 0
+ * [  +0.000004] arch_push_to_tlb, core #37 fault on 0x400100000000,
+ *                                 original pte 0x800000305cec7867,
+ *                                 pushed fake pte addr 0xffff88810f96b000,
+ *                                 val 0x800000305cec7867
+ * [  +0.000004] cur_page, pte 0x800000305cec7867, P 0x1, A 0x20, D 0x40
+ *                 mapped kernel virt 0xffff88b05cec7000, the first size_t is 0
+ *                 user_virt_addr 0x400100000000, value 0
+ * [  +0.000004] arch_push_to_tlb, core #37 read usr virt 0x400100000000
+ * 
+ * 
+ * 
+ * // read virt page[1], pushed fake pte of virt page[0], w/ dirty bit
+ * [  +0.000010] exchange_pte_val_to_previous, exchange the addr 0x400100001000
+ *                         to prev_addr 0x400100000000 's pte 0x800000305cec7867
+ *                         P 0x1, A 0x20, D 0x40
+ * [  +0.000004] prev_page, pte 0x800000305cec7847, P 0x1, A 0x0, D 0x40
+ *                 mapped kernel virt 0xffff88b05cec7000, the first size_t is 0
+ *                 user_virt_addr 0x400100000000, value 0
+ * [  +0.000003] arch_push_to_tlb, core #37 fault on 0x400100001000,
+ *                                 original pte 0x8000000002e6b205,
+ *                                 pushed fake pte addr 0xffff88810f96b008,
+ *                                 val 0x800000305cec7867
+ * [  +0.000004] cur_page, pte 0x800000305cec7867, P 0x1, A 0x20, D 0x40
+ *                 mapped kernel virt 0xffff88b05cec7000, the first size_t is 0
+ *                 user_virt_addr 0x400100001000, value 0
+ * [  +0.000003] arch_push_to_tlb, core #37 read usr virt 0x400100001000
+ * 
+ * 
+ * // read virt page[2], pushed fake pte of virt page[1], w/o dirty bit
+ * [  +0.000012] exchange_pte_val_to_previous, exchange the addr 0x400100002000
+ *                         to prev_addr 0x400100001000 's pte 0x8000000002e6b205
+ *                         P 0x1, A 0x0, D 0x0
+ * [  +0.000003] arch_push_to_tlb, core #37 fault on 0x400100002000,
+ *                                 original pte 0x8000000002e6b205,
+ *                                 pushed fake pte addr 0xffff88810f96b010,
+ *                                 val 0x8000000002e6b225
+ * [  +0.000004] cur_page, pte 0x8000000002e6b225, P 0x1, A 0x20, D 0x0
+ *                 mapped kernel virt 0xffff888002e6b000, the first size_t is 0
+ *                 user_virt_addr 0x400100002000, value 0
+ * [  +0.000003] arch_push_to_tlb, core #37 read usr virt 0x400100002000
+ * 
+ * 
+ * // write virt page[2], fake pte w/o dirty bit, trigger another page fault
+ * [  +0.000008] exchange_pte_val_to_previous, exchange the addr 0x400100002000
+ *                         to prev_addr 0x400100001000 's pte 0x8000000002e6b205
+ *                         P 0x1, A 0x0, D 0x0
+ * [  +0.000005] prev_page, pte 0x8000000002e6b205, P 0x1, A 0x0, D 0x0
+ *                 mapped kernel virt 0xffff888002e6b000, the first size_t is 0
+ *                 user_virt_addr 0x400100001000, value 0
+ * [  +0.000002] arch_push_to_tlb, core #37 fault on 0x400100002000,
+ *                                 original pte 0x800000305ce8e867,
+ *                                 pushed fake pte addr 0xffff88810f96b010,
+ *                                 val 0x8000000002e6b225
+ * [  +0.000004] cur_page, pte 0x8000000002e6b225, P 0x1, A 0x20, D 0x0
+ *                 mapped kernel virt 0xffff888002e6b000, the first size_t is 0
+ *                 user_virt_addr 0x400100002000, value 0
+ * [  +0.000003] arch_push_to_tlb, core #37 read usr virt 0x400100002000
+ * 
+ * 
+ * // read virt page[3], pushed fake pte of virt page[2], w/ dirty bit
+ * [  +0.000012] exchange_pte_val_to_previous, exchange the addr 0x400100003000
+ *                         to prev_addr 0x400100002000 's pte 0x800000305ce8e867
+ *                         P 0x1, A 0x20, D 0x40
+ * [  +0.000004] prev_page, pte 0x800000305ce8e847, P 0x1, A 0x0, D 0x40
+ *                 mapped kernel virt 0xffff88b05ce8e000, the first size_t is 2
+ *                 user_virt_addr 0x400100002000, value 2
+ * [  +0.000003] arch_push_to_tlb, core #37 fault on 0x400100003000,
+ *                                 original pte 0x8000000002e6b205,
+ *                                 pushed fake pte addr 0xffff88810f96b018,
+ *                                 val 0x800000305ce8e867
+ * [  +0.000003] cur_page, pte 0x800000305ce8e867, P 0x1, A 0x20, D 0x40
+ *                 mapped kernel virt 0xffff88b05ce8e000, the first size_t is 2
+ *                 user_virt_addr 0x400100003000, value 2
+ * [  +0.000003] arch_push_to_tlb, core #37 read usr virt 0x400100003000
+ * 
+ * //
+ * [  +0.000016] exchange_pte_val_to_previous, exchange the addr 0x400100004000
+ *                         to prev_addr 0x400100003000 's pte 0x8000000002e6b205
+ *                         P 0x1, A 0x0, D 0x0
+ * [  +0.000003] arch_push_to_tlb, core #37 fault on 0x400100004000,
+ *                                 original pte 0x8000000002e6b205,
+ *                                 pushed fake pte addr 0xffff88810f96b020,
+ *                                 val 0x8000000002e6b225
+ * [  +0.000003] cur_page, pte 0x8000000002e6b225, P 0x1, A 0x20, D 0x0
+ *                 mapped kernel virt 0xffff888002e6b000, the first size_t is 0
+ *                 user_virt_addr 0x400100004000, value 0
+ * [  +0.000003] arch_push_to_tlb, core #37 read usr virt 0x400100004000
+ * [  +0.000008] exchange_pte_val_to_previous, exchange the addr 0x400100004000
+ *                         to prev_addr 0x400100003000 's pte 0x8000000002e6b205
+ *                         P 0x1, A 0x0, D 0x0
+ * [  +0.000005] prev_page, pte 0x8000000002e6b205, P 0x1, A 0x0, D 0x0
+ *                 mapped kernel virt 0xffff888002e6b000, the first size_t is 0
+ *                 user_virt_addr 0x400100003000, value 0
+ * [  +0.000002] arch_push_to_tlb, core #37 fault on 0x400100004000,
+ *                                 original pte 0x800000305ce6f867,
+ *                                 pushed fake pte addr 0xffff88810f96b020,
+ *                                 val 0x8000000002e6b225
+ * [  +0.000004] cur_page, pte 0x8000000002e6b225, P 0x1, A 0x20, D 0x0
+ *                 mapped kernel virt 0xffff888002e6b000, the first size_t is 0
+ *                 user_virt_addr 0x400100004000, value 0
+ * [  +0.000002] arch_push_to_tlb, core #37 read usr virt 0x400100004000
+ * 
+ * 
+ * 
  * @version 0.1
  * @date 2021-10-10
  * 
@@ -118,7 +277,7 @@ int main(){
 	for(j=0; j< size/sizeof(unsigned long); j+=(PAGE_SIZE/sizeof(unsigned long)) ){
 
 		// read the initial value before wrting
-		printf("before write: page[%lu], unsigned long offset[%d] : %lu\n",
+		printf("before write: read on page[%lu], unsigned long offset[%d] : %lu\n",
 			j/(PAGE_SIZE/sizeof(unsigned long)), 0,	buf_ptr[j+0]);
 
 		for(i= 0; i<(PAGE_SIZE/sizeof(unsigned long)) ; i++ ){
@@ -129,23 +288,16 @@ int main(){
 			buf_ptr[j+i] = j/(PAGE_SIZE/sizeof(unsigned long));  
 		}
 
-		// print the value of the initialized page
-		// As a result, we are expecting the data as 
-		// page[0], unsigned long offset[0] : 0
-		// page[0], unsigned long offset[0] : 1
-		// page[1], unsigned long offset[0] : 1
-		// page[1], unsigned long offset[0] : 2
-		// page[2], unsigned long offset[0] : 2
 		// ...
 		if(j >= PAGE_SIZE/sizeof(unsigned long)){
 			// previous page
 			// We overwrite the data on previous page
-			printf("Prev Page[%lu], unsigned long offset[%d] : %lu \n",
+			printf("After write, Read on Prev Page[%lu], unsigned long offset[%d] : %lu \n",
 				j/(PAGE_SIZE/sizeof(unsigned long)) -1 , 0, buf_ptr[j - (PAGE_SIZE/sizeof(unsigned long)) +0]);
 		}
 		
 		// current page
-		printf("Page[%lu], unsigned long offset[%d] : %lu \n\n",
+		printf("After write, Read on Page[%lu], unsigned long offset[%d] : %lu \n\n",
 				j/(PAGE_SIZE/sizeof(unsigned long)), 0, buf_ptr[j+0]);
 		
 	}
