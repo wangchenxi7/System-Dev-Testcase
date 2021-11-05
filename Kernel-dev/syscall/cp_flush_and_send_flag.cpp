@@ -47,7 +47,7 @@ extern errno;
 //#define ARRAY_BYTE_SIZE 0xc0000000UL
 
 #define ARRAY_START_ADDR	0x400100000000UL //data region
-#define ARRAY_BYTE_SIZE   2*ONE_GB  // 
+#define ARRAY_BYTE_SIZE   1*ONE_GB  // 
 
 int online_cores = 8;
 
@@ -196,6 +196,48 @@ void *scan_array_sequential_overleap(void* _args){
 }
 
 
+// force page swap-out
+void *force_array_swapout_no_overleap(void* _args){
+	struct thread_args *args = (struct thread_args*)_args;
+	size_t tid = (size_t)args->thread_id; // 0 to online_cores
+	char* user_buff	=	(char*)args->user_buf;
+	size_t array_slice = ARRAY_BYTE_SIZE/sizeof(unsigned long)/online_cores;
+	size_t array_start = array_slice * tid;
+	size_t i, sum;
+	int type;
+
+
+	printf("Thread[%lu] Phase #1, trigger swap out. \n",tid);
+	unsigned long * buf_ptr = (unsigned long*)user_buff;
+	for( i = array_start  ; i < array_start + array_slice  ; i++ ){
+		buf_ptr[i] = i;  // the max value.
+	}
+
+
+	printf("Thread[%lu] Phase#2, force swap out all the pages", tid);
+	type = 0x4;
+	int target_server = 0;
+	size_t array_slice_byte = array_slice * sizeof(unsigned long);
+	char* flush_start_byte_addr = user_buff + tid * array_slice_byte;
+
+	printf("Force swap out [0x%lx, 0x%lx]\n", (size_t)flush_start_byte_addr, (size_t)flush_start_byte_addr + array_slice_byte );
+  int syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, target_server, flush_start_byte_addr, array_slice_byte );
+	printf("System call id SYS_do_semeru_rdma_ops, type 0x%x, memory server %d, returned %d \n", type, target_server, syscall_ret);
+
+
+	sum =0;
+	printf("Thread[%lu] Phase #3, trigger swap in.\n", tid);
+	for( i=array_start; i<  array_start + array_slice; i++ ){
+		sum +=buf_ptr[i];  // the sum should be 0x7,FFF,FFE,000,000.
+	}
+
+	printf("Thread[%lu] sum : 0x%lx \n", tid, sum);
+
+	pthread_exit(NULL);
+}
+
+
+
 
 int main(){
 				
@@ -235,7 +277,7 @@ int main(){
 		args[i].user_buf = user_buff;
 		args[i].thread_id = i;
 		
-		ret = pthread_create(&threads[i], NULL, scan_array_random_overleap, (void*)&args[i]);
+		ret = pthread_create(&threads[i], NULL, force_array_swapout_no_overleap, (void*)&args[i]);
 		//ret = pthread_create(&threads[i], NULL, scan_array_sequential_overleap, (void*)&args[i]);
 		if (ret){
       printf("ERROR; return code from pthread_create() is %d\n", ret);
@@ -249,11 +291,11 @@ int main(){
 	// Send the end flag via the flush-and-sent-flag path
 	sleep(1);
 
-	type = 0x5;
-	target_server = 0;
-	printf("Sent the flag [0x%lx, 0x%lx]\n", request_addr, request_addr + PAGE_SIZE );
-  syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, target_server, user_buff, PAGE_SIZE);
-  printf("System call id SYS_do_semeru_rdma_ops, type 0x%x, memory server %d, returned %d \n", type, target_server, syscall_ret);
+	// type = 0x5;
+	// target_server = 0;
+	// printf("Sent the flag [0x%lx, 0x%lx]\n", request_addr, request_addr + PAGE_SIZE );
+  // syscall_ret = syscall(SYS_do_semeru_rdma_ops,type, target_server, user_buff, PAGE_SIZE);
+  // printf("System call id SYS_do_semeru_rdma_ops, type 0x%x, memory server %d, returned %d \n", type, target_server, syscall_ret);
 
 
 	pthread_exit(NULL); // main thread return.

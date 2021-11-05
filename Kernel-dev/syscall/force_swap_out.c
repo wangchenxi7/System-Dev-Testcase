@@ -88,7 +88,7 @@ int main(){
 	size_t size  					=	0x200000; // 2MB, a single PMD entry
 	char* user_buff;
 	size_t i;
-	size_t initial_val		= -1;  //
+	size_t initial_val		= 999;  //
 	int syscall_ret 				= 0;
 
 	// 1) reserve space by mmap
