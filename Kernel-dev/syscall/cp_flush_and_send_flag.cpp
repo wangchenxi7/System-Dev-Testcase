@@ -47,7 +47,9 @@ extern errno;
 //#define ARRAY_BYTE_SIZE 0xc0000000UL
 
 #define ARRAY_START_ADDR	0x400100000000UL //data region
-#define ARRAY_BYTE_SIZE   1*ONE_GB  // 
+//#define ARRAY_BYTE_SIZE   1*ONE_GB  // 
+#define ARRAY_BYTE_SIZE   128*ONE_MB 
+
 
 int online_cores = 8;
 

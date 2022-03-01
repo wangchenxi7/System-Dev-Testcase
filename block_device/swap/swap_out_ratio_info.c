@@ -18,10 +18,13 @@
 // Semeru
 //#include <linux/swap_global_struct.h>
 
-#define MADV_FLUSH_RANGE_TO_REMOTE 20  // Should include from linux header
-
 #define SYS_SWAP_STAT_RESET			335
 #define SYS_NUM_SWAP_OUT_PAGES	336
+
+
+// JVM parameters
+#define HEAP_REGION_BYTE_LOG	20UL // Update the value to log(heap_region_size) 
+#define HEAP_REGION_BYTE_SIZE (1UL << HEAP_REGION_BYTE_LOG)
 
 
 typedef enum {true, false} bool;
@@ -76,6 +79,39 @@ char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 }
 
 
+/**
+ * @brief Print the cache ratios of each region within the specified range.
+ *			Please make sure the start and size are region size aligned.  
+ *
+ * @param start 
+ * @param size 
+ */
+void print_cache_ration_of_each_region(unsigned long start, unsigned long size){
+	unsigned long num_of_regions = size/HEAP_REGION_BYTE_SIZE;
+	unsigned long swapped_out_pages = 0;
+	int i;
+
+	// saint checks
+	if(start % HEAP_REGION_BYTE_SIZE != 0 ){
+		printf("start addr 0x%lx is NOT aligned to region size 0x%lx .\n", start, HEAP_REGION_BYTE_SIZE);
+		return;
+	}
+
+	if(size % HEAP_REGION_BYTE_SIZE != 0 ){
+		printf("Heap size 0x%lx is NOT aligned to region size 0x%lx .\n", size, HEAP_REGION_BYTE_SIZE);
+		return;
+	}
+
+	for(i=0; i<num_of_regions; i++ ){
+		swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, start + i*HEAP_REGION_BYTE_SIZE , HEAP_REGION_BYTE_SIZE);
+		printf("HeapRegion[%d] [0x%lx, 0x%lx)  swapped out pages %lu \n", 
+			 i, start + i*HEAP_REGION_BYTE_SIZE, start + (i+1)*HEAP_REGION_BYTE_SIZE, swapped_out_pages );
+	}
+
+	return;
+}
+
+
 
 
 int main(){
@@ -90,6 +126,13 @@ int main(){
 	unsigned long sum = 0;
 	unsigned long swapped_out_pages = 0;
 	int ret;
+
+	//
+	// reset the swap counter at the very begining.
+	printf("	Reset the swap out statistics monitoring array\n");
+	ret = syscall(SYS_SWAP_STAT_RESET, request_addr, size);
+	printf("	SYS_SWAP_STAT_RESET returned %d \n", ret);
+
 
 	// 1) reserve space by mmap
 	user_buff = reserve_anon_memory((char*)request_addr, size, true );
@@ -113,37 +156,29 @@ int main(){
 		buf_ptr[i] = i;  // the max value.
 	}
 
-	printf("	Reset the swap out statistics monitoring array\n");
-	ret = syscall(SYS_SWAP_STAT_RESET, request_addr, size);
-	printf("	SYS_SWAP_STAT_RESET returned %d \n", ret);
-
-	printf("	#1 Check current swapped out pages num\n");
+	printf("	#1 Check current swapped out pages num after init\n");
 	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
-	printf("	#1 swapped out pages num 0x%lx \n", swapped_out_pages);  // should be 0.
+	printf("	1 swapped out pages num 0x%lx \n", swapped_out_pages);
+
+	// print the region cache ratio details.
+	print_cache_ration_of_each_region(request_addr, size);
 
 
-	printf("Phase#2, invoke madvice to add the whole array into inactive list \n");
-	ret = madvise(user_buff, size, MADV_FLUSH_RANGE_TO_REMOTE);
-	//ret = madvise(user_buff, size, 8);
-	
-	printf("	#2 Check current swapped out pages num after calling madvise\n");
-	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
-	printf("	#2 swapped out pages num 0x%lx \n", swapped_out_pages);  // should be size/4K
-	
-	if(ret !=0){
-		printf("MAD_FREE failed, return value %d \n", ret);
-	}
 
 	sum =0;
-	printf("Phase#3, trigger swap in.\n");
-	for(i=0; i< size/sizeof(unsigned long); i+=1024 ){ // access 1 u64 per 8KB, 2pages.
-		printf("buf_ptr[0x%lx] 0x%lx \n",(unsigned long)i, buf_ptr[i]);
-		sum +=buf_ptr[i];  // the sum should be 0x7f0,000
+	printf("Phase#2, trigger swap in.\n");
+	for(i=0; i< size/sizeof(unsigned long); i++ ){
+		sum +=buf_ptr[i]; 
 	}
 
-	printf("	#3 Check current swapped out pages num after re-access these pages\n");
+	printf("	#2 Check current swapped out pages num after re-access these pages\n");
 	swapped_out_pages = syscall(SYS_NUM_SWAP_OUT_PAGES, request_addr, size);
-	printf("	#3 swapped out pages num 0x%lx \n", swapped_out_pages);	// should be half the pages stay swapped out.
+	printf("	#2 swapped out pages num 0x%lx \n", swapped_out_pages);	// should be half the pages stay swapped out.
+
+	// print the region cache ratio details.
+	print_cache_ration_of_each_region(request_addr, size);
+
+
 
 	printf("sum : 0x%lx \n",sum);
 

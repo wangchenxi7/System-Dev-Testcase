@@ -14,6 +14,7 @@ all:
 	cc ${CFLAGS} add_page_to_inactive_list.c -o add_page_to_inactive_list.o
 	cc ${CFLAGS} flush_page_to_swap_imm.c -o flush_page_to_swap_imm.o
 	cc ${CFLAGS} swap_out_ratio_flush_based.c -o swap_out_ratio_flush_based.o
+	cc ${CFLAGS} swap_out_ratio_info.c -o swap_out_ratio_info.o
 	cc ${CFLAGS} control_path.c -o control_path.o
 	cc ${CFLAGS} flush_page_to_swap_imm.c -o flush_page_to_swap_imm.o
 	cc ${CFLAGS} control_path_after_data_path_flush.c -o control_path_after_data_path_flush.o
@@ -31,4 +32,4 @@ clean:
 	rm swap_streaming.o swap_mmap.o add_page_to_inactive_list.o  flush_page_to_swap_imm.o swap_out_ratio_flush_based.o  control_path.o \
 			control_path_after_data_path_flush.o   on_demand_swapin.o  on_demand_swapin_monitor.o swap_info_count.o swap_reset_counter.o \
 			swap_counter_read.o swap_mmap_dual_path.o swap_mmap_random.o  swap_mmap_multi_thread.o remoteswap_reset_counter.o remoteswap_read_counter.o \
-			remoteswap_reset_latency_counter.o remoteswap_read_latency_counter.o
+			remoteswap_reset_latency_counter.o remoteswap_read_latency_counter.o swap_out_ratio_info.o
