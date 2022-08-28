@@ -7,7 +7,7 @@ CFLAGS= -lrdmacm -libverbs
 
 # Default rules 
 all : client.c
-	$(CC) $(CFLAGS)   client.c -o client 
+	$(CC)   client.c -o client.o $(CFLAGS)
 
 clean: 
-	rm client
+	rm client.o
