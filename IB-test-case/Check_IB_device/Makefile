@@ -3,11 +3,12 @@
 
 
 CC=gcc
-CFLAGS= -lrdmacm -libverbs
+CFLAGS=
+LDLIBS= -lrdmacm -libverbs
 
 # Default rules 
 all : client.c
-	$(CC)   client.c -o client.o $(CFLAGS)
+	$(CC) $(CFLAGS)   client.c -o client $(LDLIBS)
 
 clean: 
-	rm client.o
+	rm client
