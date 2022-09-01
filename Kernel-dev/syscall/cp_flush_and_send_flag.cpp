@@ -91,7 +91,7 @@ static char* reserve_anon_memory(char* requested_addr, unsigned long bytes, bool
 char* commit_anon_memory(char* start_addr, unsigned long size, bool exec) {
 	int prot = (exec == true) ? PROT_READ|PROT_WRITE|PROT_EXEC : PROT_READ|PROT_WRITE;
 	unsigned long res = (unsigned long)mmap(start_addr, size, prot,
-																		 MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);   // MAP_FIXED will override the old mapping
+									 MAP_PRIVATE|MAP_FIXED|MAP_ANONYMOUS, -1, 0);   // MAP_FIXED will override the old mapping
 	
 	// commit memory successfully.
 	if (res == (unsigned long) MAP_FAILED) {
