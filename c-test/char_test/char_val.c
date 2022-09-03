@@ -13,7 +13,7 @@
 
 unsigned char char_val(unsigned char val){
 	printf("passed in char %c \n", val);
-	printf("print as unsigned char 0x%u \n", val);
+	printf("print as unsigned char %u \n", val);
 }
 
 int main(int argc, char* argv[]){

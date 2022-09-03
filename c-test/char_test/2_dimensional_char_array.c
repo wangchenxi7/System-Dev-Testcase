@@ -1,4 +1,6 @@
 #include "stdio.h"
+#include "stdlib.h"
+#include "string.h"
 
 int main(int argc, char* argv[] ){
 
@@ -6,7 +8,7 @@ int main(int argc, char* argv[] ){
 	int i;
 
 	for(i=0;i<2;i++){
-		printf("mem_server_ip[%d] %s, len %d \n",i, mem_server_ip[i], strlen(mem_server_ip[i]) );
+		printf("mem_server_ip[%d] %s, len %lu \n",i, mem_server_ip[i], strlen(mem_server_ip[i]) );
 	}
 
 
